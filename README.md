@@ -1,4 +1,4 @@
-# ArchiBIM 0.4.0
+# ArchiBIM 0.5.0
 
 **A practical parametric architecture/BIM extension for SketchUp Desktop**  
 Built by SS Digital Lab · 5 November 2026
@@ -37,13 +37,13 @@ If SketchUp disallows the unsigned extension, review your Extension Manager load
 
 Each model object is a SketchUp group with an `SSDigitalLab_ArchiBIM` attribute dictionary, plus a tag named `AB | ...`. All stored geometry dimensions are **millimetres**; quantities report metres/m²/m³. Costs in the UI are **illustrative RM estimates**, not verified material or construction prices.
 
-## 0.4 updates and limitations
+## 0.5 updates and limitations
 
-**[Read v0.4 release notes](docs/V0_4_RELEASE_NOTES.md).** Includes double-casement windows, wedge elevation markers, center/left/right structural placement previews, two staircase families, hip roofs, gable-end infill, inspector auto-focus, scaled-group repair and diagnostics. The geometry join solver is still limited and desktop validation remains required. The stable direct RBZ URL after GitHub deployment is `https://raw.githubusercontent.com/shukritobi/ArchiBIM/main/dist/ArchiBIM_latest.rbz`.
+**[Read v0.5 release notes](docs/V0_5_RELEASE_NOTES.md).** Includes double-casement windows, wedge elevation markers, center/left/right structural placement previews, two staircase families, hip roofs, gable-end infill, inspector auto-focus, scaled-group repair and diagnostics. The geometry join solver is still limited and desktop validation remains required. The stable direct RBZ URL after GitHub deployment is `https://raw.githubusercontent.com/shukritobi/ArchiBIM/main/dist/ArchiBIM_latest.rbz`.
 
 ## Getting started
 
-1. **Draw walls:** In Build, choose `Wall`; click first and second points. Connected wall lines continue from the last endpoint. Change height/thickness under Build presets before drawing, or select a wall and edit those fields in Properties afterward.
+1. **Draw walls:** In Build, choose `Wall`; click first and second points. Connected wall lines continue from the last endpoint. Choose Wall to open its dedicated creation parameters and change height/thickness before drawing, or select a wall and edit those fields in Properties afterward.
 2. **Insert door/window:** Choose `Door` or `Window` and hover a wall and click once the green ghost preview is valid, including in top/plan views. The plugin finds the host wall and creates a rectangular void. To specify precise offsets and widths, select the wall and edit Hosted Components in Properties.
 3. **Levels:** Add stories in the Levels tab. Select the target story from Build; new geometry is created at that level's elevation. Updating a level height moves its assigned ArchiBIM groups.
 4. **Other geometry:** Slab, room, footing, gable roof and rectangular hip roof use two diagonal footprint corners. Beam and stair use two points along their run. Column follows the cursor with a live ghost preview and inserts at the clicked position.
@@ -53,8 +53,8 @@ Each model object is a SketchUp group with an `SSDigitalLab_ArchiBIM` attribute 
 
 ## Editing rules
 
-- To change parameters (size, pitch, story, height), use **ArchiBIM → Properties**. To resize a full house footprint without altering wall thickness or hosted opening size, use **Resize BIM footprint** in Export. After native SketchUp Scale, run **Repair selected after Scale** in Diagnostics to adopt the new footprint without scaling thickness, frames or openings; **Rebuild selected** restores saved dimensions.
-- Native SketchUp Move/Rotate preserve most element transformations but junctions need manual **Recalculate wall junctions** after a Move. **Explode and direct vertex edits** sever the intended parametric workflow; after native Scale, explicitly repair the group in Diagnostics.
+- To change parameters (size, pitch, story, height), use **ArchiBIM → Properties**. To resize a full house footprint without altering wall thickness or hosted opening size, use **Resize BIM footprint** in Export. Native SketchUp Scale automatically schedules a **separate repair pass** after mouse release (enabled by default); turn off the protection if needed. You can also run **Repair selected after Scale** in Diagnostics to adopt the new footprint without scaling thickness, frames or openings; **Rebuild selected** restores saved dimensions.
+- Native SketchUp Move/Rotate preserve most element transformations but junctions need manual **Recalculate wall junctions** after a Move. **Explode and direct vertex edits** sever the intended parametric workflow; after native Scale, verify the auto-repair or repair the group in Diagnostics if unsupported.
 - Editing a hosted wall regenerates its child door/window graphics. Do not manually add valuable geometry inside the BIM wall group; these child entities are replaced on regeneration.
 - Creating BIM elements while inside a nested group is not supported by the drawing tools. Work at the model root, or move the finished groups afterward.
 - When level names change, ArchiBIM retags only its own elements. Empty prior Tags may remain in SketchUp and may be removed manually.
@@ -62,7 +62,7 @@ Each model object is a SketchUp group with an `SSDigitalLab_ArchiBIM` attribute 
 
 ## Limits and known gaps
 
-**This is not yet a full commercial BIM product**. The following are NOT implemented: generalized/multi-way wall joins, multilayer / curved walls; compound sections/material assemblies; native family editor and constraints engine; hosted MEP; slab/roof holes; true georeferenced site modeling; ceiling objects; automatic room boundary detection; automatic stair railings and complex stair types; curtain walls; linked dimensions and construction documentation; native `.rvt` or `.pln` import/export; lossless IFC round-tripping; automatic real-time synchronization after arbitrary native SketchUp Scale or mesh edits; multiuser collaboration; clash detection; and performance optimization for very large projects.
+**This is not yet a full commercial BIM product**. The following are NOT implemented: generalized/multi-way wall joins, multilayer / curved walls; compound sections/material assemblies; native family editor and constraints engine; hosted MEP; slab/roof holes; true georeferenced site modeling; ceiling objects; automatic room boundary detection; production-ready stair railing families and complex stair types; curtain walls; linked dimensions and construction documentation; native `.rvt` or `.pln` import/export; lossless IFC round-tripping; instantaneous correction while SketchUp Scale is being dragged, or automatic repair of arbitrary direct mesh edits; multiuser collaboration; clash detection; and performance optimization for very large projects.
 
 Native IFC export is **edition-, version- and schema-dependent**. An `IfcWall` label in the plugin's attributes is not proof that a third-party BIM application will read the same semantic or parameter structure. IFC export requires independent validation.
 

@@ -11,12 +11,12 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 .tool{background:#1d2e43;border:1px solid #34475b;border-radius:10px;color:var(--tx);padding:11px 9px;text-align:left;min-width:0;cursor:pointer}.tool:hover{border-color:#65c5bb;background:#213b4d}.tool b{display:block;font-size:11.5px}.tool span{display:block;font-size:10px;color:var(--muted);margin-top:3px}.icon{font-size:18px;margin-bottom:7px;display:block;color:var(--primary)}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:12px}.stat{border-radius:10px;padding:11px;background:var(--panel);border:1px solid var(--line)}.stat b{font-size:16px;display:block;font-variant-numeric:tabular-nums;color:var(--primary)}.stat span{color:var(--muted);font-size:10px}.listrow{padding:10px;border:1px solid var(--line);border-radius:9px;margin:9px 0;background:#121c2c}.rowtitle{font-size:11.5px;font-weight:750;margin-bottom:7px}.pill{font-size:10px;border-radius:5px;background:#254b55;color:#bffbef;padding:2px 6px;font-weight:700}.secondary{color:var(--muted)}.divider{border-top:1px solid var(--line);margin:13px 0}.scrollX{overflow-x:auto}.qty{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap}.qty th{text-align:left;color:#a4b6cc;font-weight:650;font-size:10px;padding:9px 7px;border-bottom:1px solid #36465a}.qty td{padding:8px 7px;border-bottom:1px solid #28384d}.qty td.num{text-align:right;font-variant-numeric:tabular-nums}.qty th.num{text-align:right}.empty{padding:20px 10px;text-align:center;border:1px dashed #3a4b62;border-radius:10px;color:var(--muted);line-height:1.7}.notice{border-left:3px solid var(--primary);padding:9px 12px;background:#1b3441;border-radius:5px;color:#c7e8e5;font-size:11.5px}.footer{color:#6e829a;text-align:center;padding:14px 0 20px;font-size:10px}
 </style></head><body>
-<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.1</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
+<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.5.0</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
 <nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
 <main>
 <section class="pane active" id="pane-build">
  <div class="panel"><div class="eyebrow">Project working level</div><div class="flex"><select class="grow" id="currentLevel"></select><button class="btn outline small" data-tab="levels">Manage</button></div><p class="hint">All new building elements will be assigned to this elevation and tag.</p></div>
- <div class="panel"><div class="eyebrow">Architectural tools</div><div class="grid tools">
+ <div class="panel" id="toolPicker"><div class="eyebrow">Architectural tools</div><div class="grid tools">
  <button class="tool" data-tool="wall"><span class="icon">▥</span><b>Wall</b><span>Click two points</span></button>
  <button class="tool" data-tool="door"><span class="icon">▤</span><b>Door</b><span>Click hosted wall</span></button>
  <button class="tool" data-tool="window"><span class="icon">▣</span><b>Window</b><span>Click hosted wall</span></button>
@@ -28,19 +28,15 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <button class="tool" data-tool="footing"><span class="icon">▰</span><b>Pad footing</b><span>Draw rectangle</span></button>
  <button class="tool" data-tool="room"><span class="icon">▦</span><b>Room zone</b><span>Draw rectangle</span></button>
  </div><p class="hint">Click first corner, then type dimensions in SketchUp Measurements (VCB): <b>20',70'</b> for a 20 by 70 ft slab, or <b>20'</b> for a wall. Hover a wall in Top/Plan to see the opening outline. H flips hinge; F reverses swing. Esc cancels.</p></div>
- <div class="panel"><div class="eyebrow">Wall reference line</div>
-    <label for="wallAlignment">Placement relative to drawn baseline</label><select id="wallAlignment"><option value="left">Left face</option><option value="center">Middle / centerline</option><option value="right">Right face</option></select>
-    <p class="hint">The dashed preview is your reference line. Side is relative to the direction you draw. Saved walls keep their existing placement mode when edited.</p></div>
- <div class="panel"><div class="eyebrow">Structural anchor lines</div><div class="grid">
-  <div><label>Column placement anchor</label><select id="columnAlignment"><option value="center">Center</option><option value="left">Left face midpoint</option><option value="right">Right face midpoint</option></select></div>
-  <div><label>Beam reference line</label><select id="beamAlignment"><option value="center">Center</option><option value="left">Left face</option><option value="right">Right face</option></select></div></div>
-  <p class="hint">Live placement outline is called a <b>ghost preview</b> or <b>rubber-band preview</b>.</p></div>
- <div class="panel"><div class="eyebrow">Family presets</div><div class="grid">
- <div><label>Roof type</label><select id="roofType"><option value="gable">Gable roof</option><option value="hip">Hip roof</option></select></div>
- <div><label>Stair type</label><select id="stairStyle"><option value="straight">Straight run</option><option value="u">U-return + landing</option></select></div>
- <div><label>Window panels</label><select id="windowPanels"><option value="1">Single pane</option><option value="2">Double casement (default)</option><option value="3">Triple casement</option><option value="4">Four panels</option></select></div>
- <div><label><input id="roofInfill" type="checkbox" style="width:auto;margin-right:6px">Close gable-end gaps</label><p class="hint">Geometry attached to the roof, separately tagged.</p></div></div></div>
- <div class="panel"><div class="eyebrow">Type presets · SketchUp model units</div><div class="grid" id="presetFields"></div><div style="margin-top:13px"><button class="btn primary full" data-action="saveSettings">Save element presets</button></div></div>
+ <div class="panel" id="toolConfigurator" style="display:none">
+  <div class="flex"><button class="btn outline small" data-action="backTools">← All tools</button><span class="pill" id="configToolBadge">WALL</span></div>
+  <div class="eyebrow" style="margin-top:15px">Element creation parameters</div>
+  <h2 id="configToolTitle">Wall</h2><p class="hint" id="configToolHelp">Changes are saved to this model and reflected in the ghost preview.</p>
+  <div class="grid" id="configToolFields"></div>
+  <p class="hint">Settings are saved when you change a field. Move the mouse in SketchUp to refresh the ghost preview. The SketchUp Measurements box is still available for exact placement.</p>
+  <button class="btn primary full" data-action="activateTool">Start placing this element</button>
+ </div>
+ <div class="panel"><div class="eyebrow">BIM Scale protection</div><label><input id="autoRepairScale" type="checkbox" style="width:auto;margin-right:7px" checked/>Repair transformed BIM geometry automatically after using SketchUp Scale</label><p class="hint">When the Scale operation finishes, ArchiBIM rebuilds length/plan dimensions while restoring specified wall thickness, window sizes, and heights. This creates a separate undo step. For complex shear, use the diagnostic repair tool instead.</p></div>
  <div class="panel subtle"><h3>Quick start</h3><p class="hint">Generate a 8 × 6 m example with 4 editable walls, a door, a window and a slab.</p><button class="btn outline full" data-action="demo">Create demo model</button></div>
 </section>
 <section class="pane" id="pane-properties">
@@ -83,6 +79,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 <script>
 (function(){
   let state = {settings:{}, levels:[], selected:null, report:{elements:[],openings:[],summary:{},cost:0},active_level:'GF'};
+  let activeTool = null;
   let tab = 'build';
   const $ = id => document.getElementById(id);
   const html = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -94,31 +91,63 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   const btn = (label,act,cls='outline small',extra='') => `<button class="btn ${cls}" data-action="${act}" ${extra}>${html(label)}</button>`;
   const call = (method,...args) => {if(window.sketchup&&typeof window.sketchup[method]==='function') window.sketchup[method](...args); else console.warn('SketchUp bridge unavailable',method);};
   function showTab(name){tab=name;document.querySelectorAll('#nav button').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));document.querySelectorAll('.pane').forEach(el=>el.classList.toggle('active',el.id===`pane-${name}`));}
+  // Every BIM tool has its own type/creation inspector, following BIM property palettes.
+  const toolSchema={
+   wall:{title:'Wall',help:'Draw the reference line. Left/centre/right control which face follows the baseline.', fields:[['wall_height','Unconnected height'],['wall_thickness','Wall thickness'],['wall_alignment','Location line','align']]},
+   door:{title:'Door',help:'Hover over a host wall in plan or perspective to position the opening.',fields:[['door_width','Clear opening width'],['door_height','Door opening height']]},
+   window:{title:'Window',help:'Double casement is the default; adjust sill, panel count, and frame/glazing thickness.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
+   slab:{title:'Slab',help:"Draw a rectangle or type 20',70' in SketchUp Measurements to set the plan footprint.",fields:[['slab_thickness','Structural thickness']]},
+   footing:{title:'Pad footing',help:'Draw rectangular pad. Thickness is measured downward from the working level.',fields:[['footing_thickness','Footing thickness']]},
+   column:{title:'Column',help:'A single click places the column at its chosen alignment reference.',fields:[['column_width','Column width'],['column_depth','Column depth'],['column_height','Column height'],['column_alignment','Placement reference','align']]},
+   beam:{title:'Beam',help:'Draw a baseline like a wall. Set the beam base offset from the working level.',fields:[['beam_width','Beam width'],['beam_depth','Beam depth'],['beam_offset','Base offset above level'],['beam_alignment','Baseline alignment','align']]},
+   stair:{title:'Stair',help:'Cast-in-place stair flights with a continuous sloped soffit, landing, and optional handrails.',fields:[['stair_style','Layout','stairStyle'],['stair_rise','Floor-to-floor rise'],['stair_steps','Number of risers','int'],['stair_width','Clear stair width'],['stair_landing','Landing depth for U-stair'],['stair_gap','Space between parallel flights'],['stair_structure','Construction / underside','stairStructure'],['stair_waist','Stair waist thickness'],['stair_handrail','Handrail sides','handrail'],['stair_rail_height','Rail height above treads'],['stair_rail_diameter','Handrail diameter'],['stair_post_spacing','Max post spacing'],['stair_max_riser','Target maximum riser'],['stair_min_tread','Target minimum tread']]},
+   roof:{title:'Roof',help:'Rectangular gable or four-slope hip roof. Pitch is in degrees; eave offset is measured above the active level.',fields:[['roof_type','Roof form','roofType'],['roof_pitch','Pitch angle (degrees)','angle'],['roof_thickness','Roof buildup thickness'],['roof_overhang','Overhang at eaves'],['roof_eave_offset','Eave height above level'],['roof_infill','Close gable ends','boolean'],['roof_infill_thickness','Gable infill thickness']]},
+   room:{title:'Room zone',help:'Draw the room rectangle. Area is calculated automatically.',fields:[]}
+  };
+  const choices={
+    align:[['left','Left face'],['center','Centre line'],['right','Right face']],
+    panels:[[1,'Single'],[2,'Double casement'],[3,'Three panes'],[4,'Four panes']],
+    roofType:[['gable','Gable'],['hip','Hip']],
+    stairStyle:[['straight','Straight flight'],['u','U-return with landing']],
+    stairStructure:[['waist','Concrete / smooth sloped soffit'],['open','Open treads']],
+    handrail:[['none','No handrail'],['left','Left'],['right','Right'],['both','Both sides']]
+  };
+  function renderToolEditor(){
+    const box=$('toolConfigurator');if(!box)return;
+    box.style.display=activeTool?'block':'none';$('toolPicker').style.display=activeTool?'none':'block';
+    if(!activeTool)return;
+    const def=toolSchema[activeTool];$('configToolBadge').textContent=activeTool.toUpperCase();
+    $('configToolTitle').textContent=def.title+' creation';$('configToolHelp').textContent=def.help;
+    $('configToolFields').innerHTML=def.fields.map(([key,label,kind])=>{
+      const value=state.settings[key];
+      if(kind==='boolean')return `<div class="grow" style="grid-column:1/-1"><label><input id="cfg_${key}" data-setting="${key}" type="checkbox" style="width:auto" ${value!==false?'checked':''}> ${html(label)}</label></div>`;
+      if(choices[kind])return choose(`cfg_${key}`,label,choices[kind],value);
+      if(kind==='int'||kind==='angle')return field(`cfg_${key}`,label,value,'number');
+      return field(`cfg_${key}`,label,fmm(value));
+    }).join('');
+    def.fields.forEach(([key])=>{const el=$('cfg_'+key);if(el)el.dataset.setting=key;});
+  }
   function presets(){
-    const data=[['wall_height','Wall height'],['wall_thickness','Wall thickness'],['slab_thickness','Slab thickness'],['footing_thickness','Footing thickness'],['roof_thickness','Roof thickness'],['roof_pitch','Roof pitch (degrees)'],['roof_overhang','Roof overhang'],['roof_eave_offset','Roof eave offset'],['roof_infill_thickness','Gable infill thickness'],['column_width','Column width'],['column_depth','Column depth'],['column_height','Column height'],['beam_width','Beam width'],['beam_depth','Beam depth'],['beam_offset','Beam base offset'],['door_width','Door width'],['door_height','Door height'],['window_width','Window width'],['window_height','Window height'],['window_sill','Window sill'],['window_outer_frame','Window outer frame'],['window_inner_frame','Window inner sash'],['window_glass_thickness','Window glass'],['stair_width','Stair width'],['stair_steps','Stair count'],['stair_rise','Stair total rise'],['stair_landing','Stair landing length'],['stair_gap','Stair U-flight gap']];
-    $('presetFields').innerHTML=data.map(([id,l])=>field(`s_${id}`,l.replace(/ \(mm\)/g,''),['stair_steps','roof_pitch'].includes(id)?state.settings[id]:fmm(state.settings[id]),['stair_steps','roof_pitch'].includes(id)?'number':'length')).join('');
-    $('wallAlignment').value = state.settings.wall_alignment || 'center';
-    $('columnAlignment').value = state.settings.column_alignment || 'center';
-    $('beamAlignment').value = state.settings.beam_alignment || 'center';
-    $('roofType').value = state.settings.roof_type || 'gable';
-    $('roofInfill').checked = state.settings.roof_infill !== false;
-    $('stairStyle').value = state.settings.stair_style || 'straight';
-    $('windowPanels').value = String(state.settings.window_panels || 2);
+    renderToolEditor();
+    const cb=$('autoRepairScale');if(cb)cb.checked=state.settings.auto_repair_scale!==false;
     const rates=state.settings.rates||{};
     $('rateFields').innerHTML=Object.keys(rates).map(k=>field(`r_${k}`,k[0].toUpperCase()+k.slice(1),rates[k],'number')).join('');
   }
   function renderInspector(){
     const d=state.selected;
     if(!d){$('inspector').innerHTML='<div class="empty"><b>No ArchiBIM element selected</b><br>Select an ArchiBIM wall, slab, beam, column, stair or room in SketchUp, then edit its parameters here.</div>';return;}
-    const editable={wall:['length','height','thickness'],slab:['width','depth','thickness'],footing:['width','depth','thickness'],roof:['width','depth','thickness','pitch','overhang','eave_offset','infill_thickness'],column:['width','depth','height'],beam:['length','width','depth','offset'],stair:['run','width','rise','steps','landing','gap'],room:['width','depth']}[d.kind]||[];
+    const legacyStair={waist:'stair_waist',rail_height:'stair_rail_height',rail_diameter:'stair_rail_diameter',post_spacing:'stair_post_spacing',max_riser:'stair_max_riser',min_tread:'stair_min_tread'};
+    const editable={wall:['length','height','thickness'],slab:['width','depth','thickness'],footing:['width','depth','thickness'],roof:['width','depth','thickness','pitch','overhang','eave_offset','infill_thickness'],column:['width','depth','height'],beam:['length','width','depth','offset'],stair:['run','width','rise','steps','landing','gap','waist','rail_height','rail_diameter','post_spacing','max_riser','min_tread'],room:['width','depth']}[d.kind]||[];
     let content=`<div class="panel"><div class="eyebrow">Selected · ${html(d.kind)}</div><h2>${html(d.name)}</h2><p class="hint">Object ID: ${html((d.id||'').slice(0,18))}…</p><div class="grid">
       <div><label>Name</label><input id="p_name" value="${html(d.name)}"></div><div><label>Reference code</label><input id="p_code" value="${html(d.code||'')}"></div>
       </div><div style="margin-top:9px"><label>Assigned level</label><select id="p_level">${state.levels.map(l=>`<option value="${html(l.id)}" ${l.id===d.level_id?'selected':''}>${html(l.name)} · ${html(fmm(l.elevation))}</option>`).join('')}</select></div>
       <div style="margin-top:9px"><label>Notes</label><input id="p_notes" value="${html(d.notes||'')}"></div>
-      <div class="divider"></div><div class="grid">${editable.map(k=>field(`p_${k}`,k.replace(/_/g,' ').replace(/^./,m=>m.toUpperCase())+(['steps','pitch'].includes(k)?(k==='pitch'?' (degrees)':''):''),['steps','pitch'].includes(k)?d[k]:fmm(d[k]),['steps','pitch'].includes(k)?'number':'length')).join('')}</div>
+      <div class="divider"></div><div class="grid">${editable.map(k=>field(`p_${k}`,k.replace(/_/g,' ').replace(/^./,m=>m.toUpperCase())+(['steps','pitch'].includes(k)?(k==='pitch'?' (degrees)':''):''),['steps','pitch'].includes(k)?d[k]:fmm(d[k]??state.settings[legacyStair[k]]),['steps','pitch'].includes(k)?'number':'length')).join('')}</div>
       ${['wall','beam','column'].includes(d.kind)?choose('p_alignment','Reference line',[['left','Left face'],['center','Middle / center'],['right','Right face']],d.alignment||'center'):''}
       ${d.kind==='roof'?choose('p_roof_type','Roof shape',[['gable','Gable'],['hip','Hip']],d.roof_type||'gable'):''}
       ${d.kind==='roof'?`<label><input type="checkbox" id="p_infill" ${d.infill!==false?'checked':''} style="width:auto"> Close gable wall gaps (roof infill)</label>`:''}
+      ${d.kind==='stair'?choose('p_structure','Construction / underside',choices.stairStructure,d.structure||'waist'):''}
+      ${d.kind==='stair'?choose('p_handrail','Handrail sides',choices.handrail,d.handrail||'both'):''}
       ${d.kind==='stair'?choose('p_style','Stair run',[['straight','Straight'],['u','U-return with landing']],d.style||'straight'):''}
       ${d.kind==='stair'?`<p class="hint">Approximate riser height: ${num(d.rise/d.steps,1)} mm · Tread: ${num((d.run-(d.style==='u'?(d.landing||d.width):0))/(d.style==='u'?Math.ceil(d.steps/2):d.steps),1)} mm</p>`:''}
       ${state.selected_area?`<p class="hint"><b>Computed footprint area:</b> ${html(state.selected_area)} (${num(d.width*d.depth/1000000)} m²)</p>`:''}
@@ -160,19 +189,23 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   }
   window.ArchiBIM={receive(payload,focusProperties=false){state=payload;$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}}};
   $('currentLevel').addEventListener('change',e=>call('active_level',e.target.value));
-  $('wallAlignment').addEventListener('change',e=>call('settings',{wall_alignment:e.target.value}));
-  $('columnAlignment').addEventListener('change',e=>call('settings',{column_alignment:e.target.value}));
-  $('beamAlignment').addEventListener('change',e=>call('settings',{beam_alignment:e.target.value}));
+  $('autoRepairScale').addEventListener('change',e=>call('settings',{auto_repair_scale:e.target.checked}));
+  $('toolConfigurator').addEventListener('change',e=>{
+    const k=e.target.dataset.setting;if(!k)return;
+    const value=e.target.type==='checkbox'?e.target.checked:e.target.value;
+    call('settings',{[k]:value});
+  });
   document.body.addEventListener('click',e=>{
     const target=e.target.closest('button');if(!target)return;
     if(target.dataset.tab){showTab(target.dataset.tab);return;}
-    if(target.dataset.tool){call('tool',target.dataset.tool);return;}
+    if(target.dataset.tool){activeTool=target.dataset.tool;renderToolEditor();showTab('build');call('tool',target.dataset.tool);return;}
     const a=target.dataset.action,id=target.dataset.id;
     switch(a){
-      case 'saveSettings':{const patch={};const skip=['rates','wall_alignment','beam_alignment','column_alignment','roof_type','roof_infill','stair_style','window_panels'];Object.keys(state.settings).filter(k=>!skip.includes(k)).forEach(k=>patch[k]=from('s_'+k));patch.wall_alignment=from('wallAlignment');patch.column_alignment=from('columnAlignment');patch.beam_alignment=from('beamAlignment');patch.roof_type=from('roofType');patch.roof_infill=$('roofInfill').checked;patch.stair_style=from('stairStyle');patch.window_panels=Number(from('windowPanels'));call('settings',patch);break;}
+      case 'backTools':activeTool=null;renderToolEditor();break;
+      case 'activateTool':if(activeTool)call('tool',activeTool);break;
       case 'saveRates':{const rates={};Object.keys(state.settings.rates||{}).forEach(k=>rates[k]=from('r_'+k));call('settings',{rates});break;}
-      case 'saveElement':{const d=state.selected;if(!d)return;const keys={wall:['length','height','thickness'],slab:['width','depth','thickness'],footing:['width','depth','thickness'],roof:['width','depth','thickness','pitch','overhang','eave_offset','infill_thickness'],column:['width','depth','height'],beam:['length','width','depth','offset'],stair:['run','width','rise','steps','landing','gap'],room:['width','depth']}[d.kind]||[];
-        const patch={name:from('p_name'),code:from('p_code'),notes:from('p_notes'),level_id:from('p_level')};keys.forEach(k=>patch[k]=from('p_'+k));if(['wall','beam','column'].includes(d.kind))patch.alignment=from('p_alignment');if(d.kind==='roof'){patch.roof_type=from('p_roof_type');patch.infill=$('p_infill').checked;}if(d.kind==='stair')patch.style=from('p_style');call('update_element',patch);break;}
+      case 'saveElement':{const d=state.selected;if(!d)return;const keys={wall:['length','height','thickness'],slab:['width','depth','thickness'],footing:['width','depth','thickness'],roof:['width','depth','thickness','pitch','overhang','eave_offset','infill_thickness'],column:['width','depth','height'],beam:['length','width','depth','offset'],stair:['run','width','rise','steps','landing','gap','waist','rail_height','rail_diameter','post_spacing','max_riser','min_tread'],room:['width','depth']}[d.kind]||[];
+        const patch={name:from('p_name'),code:from('p_code'),notes:from('p_notes'),level_id:from('p_level')};keys.forEach(k=>patch[k]=from('p_'+k));if(['wall','beam','column'].includes(d.kind))patch.alignment=from('p_alignment');if(d.kind==='roof'){patch.roof_type=from('p_roof_type');patch.infill=$('p_infill').checked;}if(d.kind==='stair'){patch.style=from('p_style');patch.structure=from('p_structure');patch.handrail=from('p_handrail');}call('update_element',patch);break;}
       case 'addOpening':{const kind=from('newOpeningKind');call('add_opening',kind,{offset:from('newOpeningOffset')});break;}
       case 'editOpening':{const patch={};['offset','width','height','sill','hinge','swing','marker'].forEach(k=>patch[k]=from('o_'+id+'_'+k));if(state.selected?.openings?.find(o=>o.id===id)?.kind==='window'){['outer_frame','inner_frame','glass_thickness','panels'].forEach(k=>patch[k]=from('o_'+id+'_'+k));}call('edit_opening',id,patch);break;}
       case 'removeOpening':if(confirm('Remove this opening?'))call('delete_opening',id);break;

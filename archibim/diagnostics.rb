@@ -46,12 +46,14 @@ module SSDigitalLab
         report = {
           'archibim_version' => ArchiBIM::VERSION,
           'sketchup_version' => Sketchup.version,
+          'levels' => ArchiBIM.levels,
+          'active_level' => ArchiBIM.current_level['id'],
           'model_units' => model.options['UnitsOptions']['LengthUnit'],
           'elements' => elements.map do |group, data|
             t = group.transformation
             { 'id' => data['id'], 'kind' => data['kind'], 'level_id' => data['level_id'],
               'length' => data['length'], 'width' => data['width'], 'height' => data['height'],
-              'scales' => [t.xaxis.length, t.yaxis.length, t.zaxis.length],
+              'scales' => [t.xaxis.length.to_f, t.yaxis.length.to_f, t.zaxis.length.to_f],
               'openings' => data.fetch('openings', []).length }
           end
         }

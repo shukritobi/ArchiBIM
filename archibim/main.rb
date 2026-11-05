@@ -13,7 +13,7 @@ require_relative 'tools'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.4.0'
+    VERSION = '0.5.0'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -27,7 +27,10 @@ module SSDigitalLab
 
     # Logs undo/redo, with no model mutation inside transaction callbacks.
     class TransactionWatcher < Sketchup::ModelObserver
-      def onTransactionCommit(_model); Diagnostics.log('sketchup_commit'); end
+      def onTransactionCommit(model)
+        Diagnostics.log('sketchup_commit')
+        ArchiBIM.queue_scale_repair(model)
+      end
       def onTransactionAbort(_model); Diagnostics.log('sketchup_abort'); end
       def onTransactionUndo(_model); Diagnostics.log('sketchup_undo'); end
       def onTransactionRedo(_model); Diagnostics.log('sketchup_redo'); end
@@ -73,17 +76,19 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style window_panels].include?(key)
+      !%w[stair_steps roof_pitch window_panels auto_repair_scale wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style stair_structure stair_handrail].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style].include?(key)
+        next if %w[rates wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style stair_structure stair_handrail auto_repair_scale].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       validated = Core.settings(settings.merge(patch))
       Sketchup.active_model.set_attribute(DICT, 'settings', JSON.generate(validated))
+      Diagnostics.log('settings_updated', { keys: patch.keys })
+      Sketchup.active_model.active_view.invalidate
       refresh_panel
     end
 
@@ -146,6 +151,7 @@ module SSDigitalLab
     def set_active_level(id)
       raise 'Level not found' unless levels.any? { |x| x['id'] == id }
       Sketchup.active_model.set_attribute(DICT, 'active_level', id)
+      Diagnostics.log('level_selected', { id: id })
       refresh_panel
     end
 
@@ -158,6 +164,7 @@ module SSDigitalLab
       id = "LVL_#{SecureRandom.hex(4).upcase}"
       list << { 'id' => id, 'name' => name[0, 80], 'elevation' => elev }
       set_levels(list.sort_by { |l| l['elevation'] })
+      Diagnostics.log('level_created', { id: id, name: name, elevation_mm: elev })
       set_active_level(id)
     end
 
@@ -197,6 +204,7 @@ module SSDigitalLab
         model.abort_operation
         raise
       end
+      Diagnostics.log('level_updated', { id: id, elevation_mm: elev })
       refresh_panel
     end
 
@@ -207,6 +215,7 @@ module SSDigitalLab
       raise 'Level not found' if list.length == levels.length
       set_levels(list)
       set_active_level(list.first['id'])
+      Diagnostics.log('level_deleted', { id: id })
     end
 
     def data_for(entity)
@@ -277,7 +286,11 @@ module SSDigitalLab
           data.merge!('name' => 'Stair', 'run' => length,
                       'width' => s['stair_width'], 'rise' => s['stair_rise'],
                       'steps' => s['stair_steps'], 'style' => s['stair_style'],
-                      'landing' => s['stair_landing'], 'gap' => s['stair_gap'])
+                      'landing' => s['stair_landing'], 'gap' => s['stair_gap'],
+                      'structure' => s['stair_structure'], 'waist' => s['stair_waist'],
+                      'handrail' => s['stair_handrail'], 'rail_height' => s['stair_rail_height'],
+                      'rail_diameter' => s['stair_rail_diameter'], 'post_spacing' => s['stair_post_spacing'],
+                      'max_riser' => s['stair_max_riser'], 'min_tread' => s['stair_min_tread'])
         end
       elsif %w[slab room roof footing].include?(kind)
         x0, x1 = [p1.x, p2.x].minmax
@@ -450,6 +463,13 @@ module SSDigitalLab
         data['steps'] = data['steps'].to_i
         raise 'Stairs must have 1 to 100 steps' unless (1..100).cover?(data['steps'])
         raise 'Stair must be straight or U-return' unless %w[straight u].include?(data.fetch('style', 'straight'))
+        if data.fetch('structure', 'waist') == 'waist'
+          Core.number(data.fetch('waist', 150.0), 'waist thickness')
+          raise 'Stair waist must be thinner than stair total rise' if data.fetch('waist', 150.0).to_f >= data['rise'].to_f
+        end
+        raise 'Stair structure must be waist or open' unless %w[waist open].include?(data.fetch('structure', 'waist'))
+        raise 'Stair rail side must be none, left, right or both' unless %w[none left right both].include?(data.fetch('handrail', 'both'))
+        %w[rail_height rail_diameter post_spacing max_riser min_tread].each { |field| Core.number(data[field], field) if data.key?(field) }
         if data.fetch('style', 'straight') == 'u'
           raise 'U stair requires at least four steps' if data['steps'] < 4
           raise 'Landing must be shorter than total run' if data.fetch('landing', data['width']).to_f >= data['run'].to_f
@@ -468,11 +488,11 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment roof_type infill infill_thickness style landing gap]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment roof_type infill infill_thickness style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment roof_type style].include?(key)
+        if %w[name code notes level_id alignment roof_type style structure handrail].include?(key)
           data[key] = value.to_s[0, 250]
         elsif key == 'infill'
           data[key] = !!value
@@ -605,6 +625,57 @@ module SSDigitalLab
       rescue StandardError
         model.abort_operation
         raise
+      end
+      refresh_panel
+    end
+
+    # SketchUp native Scale alters the whole group (including thickness and height).
+    # After its transaction finishes, reparameterize horizontal dimensions and
+    # regenerate the BIM solid in a separate undoable operation. Never edit inside
+    # ModelObserver#onTransactionCommit (SketchUp's documented restriction).
+    def queue_scale_repair(model)
+      return if @repairing_scale || @scale_repair_queued
+      return unless model == Sketchup.active_model
+      return unless settings.fetch('auto_repair_scale', true)
+      @scale_repair_queued = true
+      UI.start_timer(0, false) do
+        @scale_repair_queued = false
+        auto_repair_scales(model) if model == Sketchup.active_model
+      end
+    rescue StandardError => e
+      Diagnostics.error('scale_repair_schedule', e)
+    end
+
+    def auto_repair_scales(model)
+      return if @repairing_scale
+      targets = elements.select { |group, _| Repair.changed_scale?(group.transformation) }
+      return if targets.empty?
+      plans = targets.map do |group, original|
+        scale_x, scale_y, scale_z = Repair.scale_factors(group.transformation)
+        next if scale_x < 0.01 || scale_y < 0.01 || scale_z < 0.01
+        updated = Repair.scaled_data(original, scale_x, scale_y)
+        validate_data(updated)
+        [group, updated, Repair.normalized_transform(group.transformation), [scale_x, scale_y, scale_z]]
+      rescue StandardError => error
+        Diagnostics.error('auto_scale_unsupported', error)
+        nil
+      end.compact
+      return if plans.empty?
+      @repairing_scale = true
+      model.start_operation('ArchiBIM: Preserve BIM dimensions after Scale', true)
+      begin
+        plans.each do |group, data, transformation, factors|
+          group.transformation = transformation
+          Geometry.build(group, data, model)
+          Diagnostics.log('auto_scale_repair', { id: data['id'], factors: factors })
+        end
+        rebuild_wall_junctions if plans.any? { |_, d, _, _| d['kind'] == 'wall' }
+        model.commit_operation
+      rescue StandardError => e
+        model.abort_operation
+        Diagnostics.error('auto_scale_repair', e)
+      ensure
+        @repairing_scale = false
       end
       refresh_panel
     end
@@ -869,7 +940,7 @@ module SSDigitalLab
     def panel_payload
       current = selected
       data = current ? data_for(current) : nil
-      dimensions = settings.reject { |k, _| %w[rates wall_alignment stair_steps roof_pitch].include?(k) }.values
+      dimensions = Core.numeric_dimensions(settings.values)
       dimensions += levels.map { |l| l['elevation'] }
       if data
         %w[length width height thickness depth run rise offset overhang eave_offset].each do |k|
@@ -878,7 +949,7 @@ module SSDigitalLab
         (data['openings'] || []).each { |o| %w[offset width height sill].each { |k| dimensions << o[k] } }
         dimensions << data['length'].to_f / 2.0 if data['kind'] == 'wall'
       end
-      length_labels = dimensions.compact.to_h do |v|
+      length_labels = dimensions.compact.grep(Numeric).to_h do |v|
         [format('%.4f', v.to_f), fmt_mm(v)]
       end
       area = if data && %w[slab room footing].include?(data['kind'])

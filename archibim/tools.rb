@@ -99,6 +99,36 @@ module SSDigitalLab
         if FOOTPRINTS.include?(@kind)
           pts = [a, Geom::Point3d.new(b.x, a.y, z), b, Geom::Point3d.new(a.x, b.y, z)]
           view.draw(GL_LINE_LOOP, pts)
+          if @kind == 'roof'
+            options = ArchiBIM.settings
+            rise = Math.tan(options['roof_pitch'].to_f * Math::PI / 180.0)
+            off = options['roof_overhang'].to_f.mm
+            base = z + options['roof_eave_offset'].to_f.mm
+            x0, x1 = [a.x, b.x].minmax
+            y0, y1 = [a.y, b.y].minmax
+            x0-=off; x1+=off; y0-=off; y1+=off
+            mx, my = (x0+x1)/2.0, (y0+y1)/2.0
+            corners = [[x0,y0],[x1,y0],[x1,y1],[x0,y1]].map { |x,y| Geom::Point3d.new(x,y,base) }
+            view.drawing_color = Sketchup::Color.new(80, 219, 185)
+            view.draw(GL_LINE_LOOP,corners)
+            if options['roof_type']=='hip'
+              w, d = x1-x0, y1-y0
+              peak = base + [w,d].min/2.0 * rise
+              r1,r2 = if w <= d
+                [Geom::Point3d.new(mx, y0+w/2.0,peak),Geom::Point3d.new(mx,y1-w/2.0,peak)]
+              else
+                [Geom::Point3d.new(x0+d/2.0,my,peak),Geom::Point3d.new(x1-d/2.0,my,peak)]
+              end
+              view.draw(GL_LINES,[r1,r2])
+              corners.each { |pt| view.draw(GL_LINES,[pt,(pt.distance(r1)<pt.distance(r2) ? r1 : r2)]) }
+            else
+              peak=base+(x1-x0)/2.0*rise
+              r1=Geom::Point3d.new(mx,y0,peak);r2=Geom::Point3d.new(mx,y1,peak)
+              view.draw(GL_LINES,[r1,r2])
+              corners[0,2].each { |pt| view.draw(GL_LINES,[pt,r1]) }
+              corners[2,2].each { |pt| view.draw(GL_LINES,[pt,r2]) }
+            end
+          end
         elsif %w[wall beam].include?(@kind)
           th = ArchiBIM.settings[@kind == 'wall' ? 'wall_thickness' : 'beam_width']
           alignment = ArchiBIM.settings[@kind == 'wall' ? 'wall_alignment' : 'beam_alignment']
@@ -115,6 +145,21 @@ module SSDigitalLab
           view.line_stipple = '-'
           view.draw(GL_LINES, [a, b])
           view.line_stipple = ''
+        elsif @kind == 'stair'
+          opts = ArchiBIM.settings
+          vx=b.x-a.x;vy=b.y-a.y;distance=Math.hypot(vx,vy)
+          return if distance < 1.0
+          nx=-vy/distance;ny=vx/distance
+          w=opts['stair_width'].to_f.mm
+          far1=Geom::Point3d.new(a.x+nx*w,a.y+ny*w,z)
+          far2=Geom::Point3d.new(b.x+nx*w,b.y+ny*w,z)
+          view.draw(GL_LINE_LOOP,[a,b,far2,far1])
+          count=[[opts['stair_steps'].to_i,2].max,100].min
+          count.times do |i|
+            t=(i+1).to_f/count
+            px=a.x+vx*t;py=a.y+vy*t
+            view.draw(GL_LINES,[Geom::Point3d.new(px,py,z),Geom::Point3d.new(px+nx*w,py+ny*w,z)])
+          end
         else
           view.draw(GL_LINES, [a, b])
         end

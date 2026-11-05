@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require_relative 'core'
+require_relative 'stair_math'
 
 module SSDigitalLab
   module ArchiBIM
@@ -120,6 +121,28 @@ module SSDigitalLab
         points.each_cons(2) { |a, b| symbol_edge(group, tag, a, b) }
       end
 
+      # The elevation marker uses the exact glass opening, including the same
+      # minimum-frame clamps as the 3D casement geometry. This prevents symbols
+      # projecting outside the glazing when smaller windows are drawn.
+      def self.window_glass_bays(opening)
+        x = opening['offset'].to_f
+        z = opening['sill'].to_f
+        width = opening['width'].to_f
+        height = opening['height'].to_f
+        outer = [opening.fetch('outer_frame', 50.0).to_f, width / 6.0, height / 6.0].min
+        sash = [opening.fetch('inner_frame', 30.0).to_f, width / 12.0, height / 12.0].min
+        count = [[opening.fetch('panels', 2).to_i, 1].max, 4].min
+        inner_left = x + outer
+        cell = (width - outer * 2.0) / count
+        count.times.filter_map do |index|
+          left = inner_left + cell * index + sash
+          right = inner_left + cell * (index + 1) - sash
+          bottom = z + outer + sash
+          top = z + height - outer - sash
+          [left, right, bottom, top] if right - left > 5 && top - bottom > 5
+        end
+      end
+
       # Render the plan leaf and dashed swing arc independently of the
       # elevation marker. Elevation marker uses a wedge, not a single slash:
       # the point identifies the hinge or handle edge, configurable per opening.
@@ -163,26 +186,35 @@ module SSDigitalLab
           end
         end
         elev, dashed = symbol_group(child, wall, opening, model, 'elevation')
-        # A separate tag controls the line style and hiding in 3D renders.
-        y = high + 16.0
-        count = opening['kind'] == 'window' ? opening.fetch('panels', 2).to_i : 1
-        count = [[count, 1].max, 4].min
-        (0...count).each do |index|
-          left = x + width * index / count
-          right = x + width * (index + 1) / count
-          hinge_on_left = if opening['kind'] == 'window' && count == 2
-                            index == 0
-                          else
-                            hinge_left
-                          end
+        # Project the symbolic vee directly onto the visible glazing / door leaf.
+        # Never offset the symbol in front of the outer frame or into free space.
+        if opening['kind'] == 'window'
+          glass = opening.fetch('glass_thickness', 3.0).to_f
+          panes = window_glass_bays(opening)
           marker = opening.fetch('marker', 'hinge')
-          point_on_left = marker == 'hinge' ? hinge_on_left : !hinge_on_left
-          point_x = point_on_left ? left : right
-          far_x = point_on_left ? right : left
-          # Two equal-height diagonals meeting at the hinge/handle midpoint.
-          symbol_edge(elev, dashed, [far_x, y, sill], [point_x, y, sill + height / 2.0])
-          symbol_edge(elev, dashed, [point_x, y, sill + height / 2.0],
-                      [far_x, y, sill + height])
+          y = (low + high) / 2.0 + glass / 2.0 + 0.55
+          panes.each_with_index do |(left, right, min_z, max_z), index|
+            # Two casements hinge at the outer jambs; each marker stays inside
+            # its own glass pane and is offset just 0.55 mm off the surface.
+            hinge_left_at = panes.length == 2 ? index.zero? : hinge_left
+            point_left = marker == 'hinge' ? hinge_left_at : !hinge_left_at
+            point_x, far_x = point_left ? [left, right] : [right, left]
+            mid_z = (min_z + max_z) / 2.0
+            symbol_edge(elev, dashed, [far_x, y, min_z], [point_x, y, mid_z])
+            symbol_edge(elev, dashed, [point_x, y, mid_z], [far_x, y, max_z])
+          end
+        else
+          outer = opening.fetch('outer_frame', 45.0).to_f
+          left, right = x + outer, x + width - outer
+          min_z, max_z = sill + 8.0, sill + height - outer
+          y = (low + high) / 2.0 + 20.5
+          marker = opening.fetch('marker', 'hinge')
+          point_left = marker == 'hinge' ? hinge_left : !hinge_left
+          point_x, far_x = point_left ? [left, right] : [right, left]
+          if right > left && max_z > min_z
+            symbol_edge(elev, dashed, [far_x, y, min_z], [point_x, y, (min_z + max_z) / 2.0])
+            symbol_edge(elev, dashed, [point_x, y, (min_z + max_z) / 2.0], [far_x, y, max_z])
+          end
         end
       end
 
@@ -254,41 +286,120 @@ module SSDigitalLab
         child
       end
 
-      def self.stair(entities, data)
-        n = data['steps'].to_i
-        run = data['run'].to_f
-        rise = data['rise'].to_f
-        width = data['width'].to_f
-        step_rise = rise / n
-        style = data.fetch('style', 'straight')
-        if style == 'u'
-          first = (n / 2.0).ceil
-          second = n - first
-          raise ArgumentError, 'U stair requires at least four risers' if second < 2
-          landing = data.fetch('landing', width).to_f
-          gap = data.fetch('gap', 150.0).to_f
-          flight = run - landing
-          raise ArgumentError, 'Stair run must exceed landing length' if flight < 200.0
-          tread = flight / [first, second].max
-          # First flight ascends +X; return flight ascends -X after landing.
-          (0...first).each do |i|
-            x0 = i * tread; x1 = (i + 1) * tread
-            box(entities, x0, x1, 0, width, 0, step_rise * (i + 1))
-          end
-          box(entities, flight, flight + landing, 0, 2.0 * width + gap,
-              [step_rise * first - 150.0, 0].max, step_rise * first)
-          (0...second).each do |i|
-            x0 = flight - (i + 1) * tread; x1 = flight - i * tread
-            box(entities, x0, x1, width + gap, 2.0 * width + gap,
-                0, step_rise * (first + i + 1))
+      # Sweep one 2D stair flight profile through its width. The continuous
+      # inclined soffit replaces the former full-height blocks/wall under each
+      # tread. Riser and tread geometry are generated in the same solid.
+      def self.stair_flight(entities, run, width, waist, structure)
+        x0 = run.fetch('x')
+        direction = run.fetch('direction')
+        y0 = run.fetch('y')
+        count = run.fetch('risers')
+        if structure == 'open'
+          tread = run.fetch('tread')
+          thickness = [40.0, run.fetch('rise') / count * 0.4].min
+          count.times do |i|
+            a = x0 + direction * tread * i
+            b = x0 + direction * tread * (i + 1)
+            z = run.fetch('base') + run.fetch('rise') / count * (i + 1)
+            box(entities, [a,b].min, [a,b].max, y0, y0 + width, z - thickness, z)
           end
         else
-          tread = run / n
-          (0...n).each do |i|
-            box(entities, i * tread, (i + 1) * tread, 0, width,
-                0, step_rise * (i + 1))
+          points = StairMath.flight_profile(risers: count, going: run['going'],
+                                            rise: run['rise'], waist: waist,
+                                            base: run['base'])
+          coords = points.map { |x,z| point(x0 + direction * x, y0, z) }
+          face = entities.add_face(coords)
+          raise 'Cannot generate the stair flight profile' unless face
+          face.reverse! if face.normal.dot(Y_AXIS) < 0
+          face.pushpull(width.mm)
+        end
+      end
+
+      # Model simple cylindrical handrails and vertical balusters. These are
+      # independent tagged child groups, not permanently fused to the stair slab.
+      def self.tube(entities, a, b, diameter, faces = 10)
+        delta = [b[0]-a[0], b[1]-a[1], b[2]-a[2]]
+        length = Math.sqrt(delta.sum { |v| v*v })
+        return if length < 1.0
+        axis = delta.map { |v| v / length }
+        reference = axis[2].abs < 0.9 ? [0,0,1] : [0,1,0]
+        u = [axis[1]*reference[2]-axis[2]*reference[1],
+             axis[2]*reference[0]-axis[0]*reference[2],
+             axis[0]*reference[1]-axis[1]*reference[0]]
+        norm = Math.sqrt(u.sum { |v| v*v })
+        u.map! { |v| v / norm }
+        v = [axis[1]*u[2]-axis[2]*u[1],
+             axis[2]*u[0]-axis[0]*u[2],
+             axis[0]*u[1]-axis[1]*u[0]]
+        radius = diameter / 2.0
+        ring = lambda do |center|
+          (0...faces).map do |i|
+            angle = Math::PI * 2 * i / faces
+            (0..2).map { |j| center[j] + radius*(u[j]*Math.cos(angle)+v[j]*Math.sin(angle)) }
           end
         end
+        low, high = ring.call(a), ring.call(b)
+        entities.add_face(low.map { |xyz| point(*xyz) })
+        entities.add_face(high.reverse.map { |xyz| point(*xyz) })
+        faces.times do |i|
+          j = (i + 1) % faces
+          entities.add_face([low[i],low[j],high[j],high[i]].map { |xyz| point(*xyz) })
+        end
+      end
+
+      def self.stair_railings(entities, data, runs, model)
+        mode = data.fetch('handrail', 'both')
+        return if mode == 'none'
+        height = data.fetch('rail_height', 950.0).to_f
+        diameter = data.fetch('rail_diameter', 40.0).to_f
+        spacing = [data.fetch('post_spacing', 900.0).to_f, 200.0].max
+        sr = data['rise'].to_f / data['steps'].to_i
+        group = entities.add_group
+        group.name = 'Stair handrails and posts'
+        level = (ArchiBIM.levels.find { |l| l['id'] == data['level_id'] } || {})['name'] || 'Ground Floor'
+        group.layer = ArchiBIM.ensure_tag("AB | Stair railings | #{level}")
+        group.material = material(model, 'frame')
+        runs.each do |run|
+          sides = mode == 'both' ? %w[left right] : [mode]
+          sides.each do |side|
+            y = run['y'] + (side == 'right' ? data['width'].to_f : 0.0)
+            start = [run['x'], y, run['base'] + sr + height]
+            last = [run['x'] + run['direction'] * run['going'], y,
+                    run['base'] + run['rise'] + height]
+            tube(group.entities, start, last, diameter)
+            posts = [(run['going'] / spacing).ceil, 1].max
+            (0..posts).each do |i|
+              t = i.to_f / posts
+              x = run['x'] + run['direction']*run['going']*t
+              bottom_z = run['base'] + [sr*(1 + (t*run['risers']).floor), run['rise']].min
+              top_z = start[2] + t*(last[2]-start[2])
+              tube(group.entities, [x,y,bottom_z], [x,y,top_z], [diameter*0.58,15.0].max, 8)
+            end
+          end
+        end
+      end
+
+      def self.stair(entities, data, model)
+        runs = StairMath.layout(data)
+        structure = data.fetch('structure', 'waist')
+        waist = data.fetch('waist', 150.0).to_f
+        runs.each_with_index do |run, i|
+          flight = entities.add_group
+          flight.name = "Flight #{i + 1} | #{run['risers']} risers"
+          stair_flight(flight.entities, run, data['width'].to_f, waist, structure)
+        end
+        if data.fetch('style', 'straight') == 'u'
+          run = runs.first
+          depth = data.fetch('landing', data['width']).to_f
+          z = run['rise']
+          x = run['going']
+          landing = entities.add_group
+          landing.name = 'Intermediate landing'
+          box(landing.entities, x, x + depth, 0.0,
+              2.0 * data['width'].to_f + data.fetch('gap', 150.0).to_f,
+              z - waist, z)
+        end
+        stair_railings(entities, data, runs, model)
       end
 
       def self.roof_panel(entities, polygon, thickness)
@@ -406,7 +517,7 @@ module SSDigitalLab
           box(group.entities, 0.0, data['length'].to_f, low, high,
               base, base + data['depth'].to_f)
         when 'stair'
-          stair(group.entities, data)
+          stair(group.entities, data, model)
         when 'room'
           box(group.entities, 0.0, data['width'].to_f, 0.0, data['depth'].to_f, 5.0, 8.0)
           group.entities.add_text(data.fetch('name', 'Room'),

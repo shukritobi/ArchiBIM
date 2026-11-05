@@ -9,6 +9,7 @@ module SSDigitalLab
       ALLOWED_KINDS = %w[wall slab column beam stair room roof footing].freeze
       DEFAULTS = {
         'wall_height' => 3000.0, 'wall_thickness' => 150.0,
+        'auto_repair_scale' => true,
         'wall_alignment' => 'center', 'column_alignment' => 'center', 'beam_alignment' => 'center',
         'slab_thickness' => 150.0, 'footing_thickness' => 450.0,
         'roof_thickness' => 125.0, 'roof_pitch' => 25.0, 'roof_overhang' => 450.0,
@@ -22,6 +23,10 @@ module SSDigitalLab
         'window_inner_frame' => 30.0, 'window_glass_thickness' => 3.0,
         'stair_width' => 1100.0, 'stair_steps' => 18, 'stair_rise' => 3000.0,
         'stair_style' => 'straight', 'stair_landing' => 1100.0, 'stair_gap' => 150.0,
+        'stair_structure' => 'waist', 'stair_waist' => 150.0,
+        'stair_handrail' => 'both', 'stair_rail_height' => 950.0,
+        'stair_rail_diameter' => 40.0, 'stair_post_spacing' => 900.0,
+        'stair_max_riser' => 190.0, 'stair_min_tread' => 250.0,
         'rates' => { 'wall' => 120.0, 'slab' => 190.0, 'column' => 650.0,
                      'beam' => 650.0, 'stair' => 4000.0, 'room' => 0.0,
                      'door' => 450.0, 'window' => 650.0,
@@ -38,6 +43,13 @@ module SSDigitalLab
         raise ArgumentError, e.message.include?(name) ? e.message : "Invalid #{name}"
       end
 
+      # Keep UI dimension formatting strictly numeric. In v0.4 this accepted
+      # Boolean family values, causing a NoMethodError in panel_payload every
+      # time the user clicked a wall or attempted to change the active level.
+      def self.numeric_dimensions(values)
+        values.select { |v| v.is_a?(Numeric) && v.finite? }
+      end
+
       def self.settings(raw)
         h = JSON.parse(JSON.generate(DEFAULTS))
         return h unless raw.is_a?(Hash)
@@ -49,8 +61,14 @@ module SSDigitalLab
           elsif key == 'roof_type'
             raise ArgumentError, 'Roof style must be gable or hip' unless %w[gable hip].include?(raw[key])
             h[key] = raw[key]
-          elsif key == 'roof_infill'
-            h[key] = !!raw[key]
+          elsif %w[roof_infill auto_repair_scale].include?(key)
+            h[key] = (raw[key] == true || raw[key].to_s == 'true' || raw[key] == 1)
+          elsif key == 'stair_structure'
+            raise ArgumentError, 'Stair construction must be waist or open' unless %w[waist open].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'stair_handrail'
+            raise ArgumentError, 'Handrail must be none, left, right or both' unless %w[none left right both].include?(raw[key])
+            h[key] = raw[key]
           elsif key == 'stair_style'
             raise ArgumentError, 'Stair style must be straight or u' unless %w[straight u].include?(raw[key])
             h[key] = raw[key]

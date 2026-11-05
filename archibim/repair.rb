@@ -30,15 +30,22 @@ module SSDigitalLab
       end
 
       def scale_factors(transformation)
-        [transformation.xaxis.length, transformation.yaxis.length, transformation.zaxis.length]
+        [transformation.xaxis.length.to_f, transformation.yaxis.length.to_f, transformation.zaxis.length.to_f]
       end
 
       def normalized_transform(transform)
+        # Nonuniform global plan Scale on a rotated wall may introduce shear.
+        # Orthogonalize the wall-local axes instead of rejecting such walls.
         x, y, z = transform.xaxis, transform.yaxis, transform.zaxis
-        raise ArgumentError, 'Cannot normalize a zero-size transformation' if [x.length, y.length, z.length].any? { |v| v < 0.00001 }
-        x.normalize!; y.normalize!; z.normalize!
-        raise ArgumentError, 'Skewed/sheared group: cannot safely reconstruct' if x.dot(y).abs > 0.001 || y.dot(z).abs > 0.001 || x.dot(z).abs > 0.001
-        Geom::Transformation.axes(transform.origin, x, y, z)
+        raise ArgumentError, 'Cannot normalize a collapsed BIM element' if [x.length, y.length, z.length].any? { |v| v < 0.00001 }
+        x.normalize!
+        y -= x * y.dot(x)
+        raise ArgumentError, 'Cannot repair a near-parallel/sheared axis' if y.length < 0.00001
+        y.normalize!
+        normal = x.cross(y)
+        normal.normalize!
+        normal.reverse! if normal.dot(z) < 0
+        Geom::Transformation.axes(transform.origin, x, y, normal)
       end
 
       def changed_scale?(transform)
