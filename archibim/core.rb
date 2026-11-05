@@ -9,6 +9,7 @@ module SSDigitalLab
       ALLOWED_KINDS = %w[wall slab column beam stair room roof footing].freeze
       DEFAULTS = {
         'wall_height' => 3000.0, 'wall_thickness' => 150.0,
+        'wall_alignment' => 'center',
         'slab_thickness' => 150.0, 'footing_thickness' => 450.0,
         'roof_thickness' => 125.0, 'roof_pitch' => 25.0, 'roof_overhang' => 450.0,
         'roof_eave_offset' => 3000.0, 'column_width' => 300.0,
@@ -38,7 +39,10 @@ module SSDigitalLab
         return h unless raw.is_a?(Hash)
         (DEFAULTS.keys - ['rates']).each do |key|
           next unless raw.key?(key)
-          if key == 'stair_steps'
+          if key == 'wall_alignment'
+            raise ArgumentError, 'Wall alignment must be left, center or right' unless %w[left center right].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'stair_steps'
             h[key] = number(raw[key], key, min: 0, max: 100).to_i
           elsif key == 'roof_pitch'
             h[key] = number(raw[key], key, min: 0, max: 79.9)

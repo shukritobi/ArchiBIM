@@ -60,31 +60,109 @@ module SSDigitalLab
         face
       end
 
+      # Wall face positions follow the placement reference line. At clean corners
+      # the end sections are mitred, at tees the free wall receives a butt cut.
+      # Geometry remains a proper closed cutout mesh with local parametric data.
       def self.wall_mesh(entities, data)
         length = data['length'].to_f
         height = data['height'].to_f
-        thickness = data['thickness'].to_f
+        low, high = Junctions.side_offsets(data['thickness'], data['alignment'])
         xs, zs, cells = Core.wall_cells(length, height, data.fetch('openings', []))
+        join = data.fetch('joins', {})
+        a = join.fetch('start', [0.0, 0.0]); b = join.fetch('end', [0.0, 0.0])
+        last = xs.size - 2
         cells.each do |(i, j), (x0, x1, z0, z1)|
-          quad(entities, [[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]], [0, -1, 0])
-          quad(entities, [[x0, thickness, z0], [x0, thickness, z1],
-                          [x1, thickness, z1], [x1, thickness, z0]], [0, 1, 0])
-          if !cells.key?([i - 1, j])
-            quad(entities, [[x0, 0, z0], [x0, 0, z1], [x0, thickness, z1],
-                            [x0, thickness, z0]], [-1, 0, 0])
+          low0 = x0 + (i.zero? ? a[0].to_f : 0.0)
+          high0 = x0 + (i.zero? ? a[1].to_f : 0.0)
+          low1 = x1 + (i == last ? b[0].to_f : 0.0)
+          high1 = x1 + (i == last ? b[1].to_f : 0.0)
+          quad(entities, [[low0, low, z0], [low1, low, z0],
+                          [low1, low, z1], [low0, low, z1]], [0, -1, 0])
+          quad(entities, [[high0, high, z0], [high0, high, z1],
+                          [high1, high, z1], [high1, high, z0]], [0, 1, 0])
+          unless cells.key?([i - 1, j])
+            quad(entities, [[low0, low, z0], [low0, low, z1],
+                            [high0, high, z1], [high0, high, z0]], [-1, 0, 0])
           end
-          if !cells.key?([i + 1, j])
-            quad(entities, [[x1, 0, z0], [x1, thickness, z0],
-                            [x1, thickness, z1], [x1, 0, z1]], [1, 0, 0])
+          unless cells.key?([i + 1, j])
+            quad(entities, [[low1, low, z0], [high1, high, z0],
+                            [high1, high, z1], [low1, low, z1]], [1, 0, 0])
           end
-          if !cells.key?([i, j - 1])
-            quad(entities, [[x0, 0, z0], [x0, thickness, z0],
-                            [x1, thickness, z0], [x1, 0, z0]], [0, 0, -1])
+          unless cells.key?([i, j - 1])
+            quad(entities, [[low0, low, z0], [high0, high, z0],
+                            [high1, high, z0], [low1, low, z0]], [0, 0, -1])
           end
-          if !cells.key?([i, j + 1])
-            quad(entities, [[x0, 0, z1], [x1, 0, z1],
-                            [x1, thickness, z1], [x0, thickness, z1]], [0, 0, 1])
+          unless cells.key?([i, j + 1])
+            quad(entities, [[low0, low, z1], [low1, low, z1],
+                            [high1, high, z1], [high0, high, z1]], [0, 0, 1])
           end
+        end
+      end
+
+      def self.symbol_group(child, wall, opening, model, orientation)
+        level = ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] }
+        label = level ? level['name'] : 'Unknown'
+        prefix = orientation == 'plan' ? 'AB | 2D | Plan' : 'AB | 2D | Elevation'
+        name = "#{prefix} | #{opening['kind'].capitalize} Swing | #{label}"
+        tag = ArchiBIM.ensure_tag(name, dashed: true)
+        group = child.entities.add_group
+        group.name = "2D #{orientation.capitalize} Swing"
+        group.layer = tag
+        [group, tag]
+      end
+
+      def self.symbol_edge(group, tag, a, b)
+        e = group.entities.add_line(point(*a), point(*b))
+        e.layer = tag if e
+      end
+
+      def self.symbol_polyline(group, tag, points)
+        points.each_cons(2) { |a, b| symbol_edge(group, tag, a, b) }
+      end
+
+      def self.opening_symbols(child, wall, opening, model)
+        x = opening['offset'].to_f; width = opening['width'].to_f
+        sill = opening['sill'].to_f; height = opening['height'].to_f
+        low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
+        hinge_left = opening.fetch('hinge', 'left') != 'right'
+        swing_sign = opening.fetch('swing', 'in') == 'out' ? -1.0 : 1.0
+        if opening['kind'] == 'door'
+          plan, tag = symbol_group(child, wall, opening, model, 'plan')
+          hinge = hinge_left ? x : x + width
+          close = hinge_left ? (x + width) : x
+          y = (low + high) / 2.0
+          z = 35.0 # Below the +1200 mm cut plane and visible in plan.
+          # Dashed ninety-degree swing arc, visible on its own Tag.
+          start_angle = hinge_left ? 0.0 : Math::PI
+          end_angle = start_angle + (hinge_left ? 1.0 : -1.0) * swing_sign * Math::PI / 2.0
+          arc = (0..16).map do |n|
+            angle = start_angle + (end_angle - start_angle) * n / 16.0
+            [hinge + width * Math.cos(angle), y + width * Math.sin(angle), z]
+          end
+          symbol_polyline(plan, tag, arc)
+          symbol_edge(plan, tag, [hinge, y, z], arc.last)
+          # Closed-position plan leaf is intentionally solid on a separate Tag.
+          edge_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Door Leaf | #{(ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name']}")
+          leaf = child.entities.add_group; leaf.layer = edge_tag; leaf.name = '2D Plan Door Leaf'
+          symbol_edge(leaf, edge_tag, [hinge, y, z], [close, y, z])
+        end
+        elev, tag = symbol_group(child, wall, opening, model, 'elevation')
+        y = high + 12.0
+        # Elevation dashed open-indicator graphics are independent of the frame.
+        if opening['kind'] == 'window'
+          symbol_edge(elev, tag, [x, y, sill], [x + width / 2.0, y, sill + height / 2.0])
+          symbol_edge(elev, tag, [x + width, y, sill], [x + width / 2.0, y, sill + height / 2.0])
+          symbol_edge(elev, tag, [x + width / 2.0, y, sill + height / 2.0], [x + width / 2.0, y, sill + height])
+        else
+          symbol_edge(elev, tag, [hinge_left ? x : x + width, y, sill],
+                      [hinge_left ? x + width : x, y, sill + height])
+        end
+        if opening['kind'] == 'window'
+          # Plan projection of glazing centreline, separate from elevation swing.
+          plan_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Window | #{(ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name']}")
+          plan = child.entities.add_group; plan.layer = plan_tag; plan.name = '2D Plan Window'
+          symbol_edge(plan, plan_tag, [x, (low + high) / 2.0, sill],
+                      [x + width, (low + high) / 2.0, sill])
         end
       end
 
@@ -94,7 +172,8 @@ module SSDigitalLab
         z = opening['sill'].to_f
         width = opening['width'].to_f
         height = opening['height'].to_f
-        t = wall['thickness'].to_f
+        low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
+        t = high - low
         frame = [45.0, width / 7.0, height / 7.0].min
         child = wall.fetch('_entities').add_group
         child.name = "#{kind.capitalize} #{opening['id'].to_s[0, 8]}"
@@ -103,8 +182,8 @@ module SSDigitalLab
         child.set_attribute('SSDigitalLab_ArchiBIM', 'data', JSON.generate(opening))
         frame_mat = material(model, 'frame')
         # Frame on inside face, with jambs and header. No sill across floor-height doors.
-        y0 = (t - 65.0) / 2.0
-        y1 = (t + 65.0) / 2.0
+        y0 = (low + high - 65.0) / 2.0
+        y1 = (low + high + 65.0) / 2.0
         frame_group = child.entities.add_group
         box(frame_group.entities, x, x + frame, y0, y1, z, z + height)
         box(frame_group.entities, x + width - frame, x + width, y0, y1, z, z + height)
@@ -123,17 +202,18 @@ module SSDigitalLab
           panel = child.entities.add_group
           if kind == 'window'
             # Glass is inset from the frame; independent translucent material.
-            mid = t / 2.0
+            mid = (low + high) / 2.0
             box(panel.entities, inner_left, inner_right, mid - 4.0, mid + 4.0,
                 inner_bottom, inner_top)
             panel.material = material(model, 'glass')
           else
-            mid = t / 2.0
+            mid = (low + high) / 2.0
             box(panel.entities, inner_left, inner_right, mid - 20.0, mid + 20.0,
                 inner_bottom, inner_top)
             panel.material = material(model, 'door')
           end
         end
+        opening_symbols(child, wall, opening, model)
         classify(child, IFC.fetch(kind))
         child
       end

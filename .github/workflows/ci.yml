@@ -1,39 +1,35 @@
-name: ArchiBIM Ruby tests and RBZ build
+name: ArchiBIM CI and RBZ package
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 permissions:
   contents: read
-
 jobs:
   test-and-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-      - name: Validate Ruby syntax
-        shell: bash
+      - name: Check Ruby syntax
         run: |
-          set -euo pipefail
           ruby -c ArchiBIM.rb
-          for file in archibim/*.rb; do
-            ruby -c "$file"
-          done
-      - name: Run core calculation tests
-        run: ruby test/test_core.rb
-      - name: Build installable SketchUp extension
+          for file in archibim/*.rb; do ruby -c "$file"; done
+      - name: Run all Ruby regression tests
+        run: ruby -e 'Dir["test/test_*.rb"].sort.each { |file| require_relative file }'
+      - name: Validate embedded UI script
+        run: |
+          sed -n '/<script>/,/<\/script>/p' archibim/ui/panel.html | sed '1d;$d' > /tmp/archibim-panel.js
+          node --check /tmp/archibim-panel.js
+      - name: Build RBZ and verify contents
         run: |
           mkdir -p dist
-          zip -q -r dist/ArchiBIM_v0.2.0.rbz ArchiBIM.rb archibim
-          unzip -t dist/ArchiBIM_v0.2.0.rbz | tail -1
-      - name: Upload RBZ as workflow artifact
-        uses: actions/upload-artifact@v4
+          zip -q -r dist/ArchiBIM_v0.3.0.rbz ArchiBIM.rb archibim -x '*.tmp'
+          unzip -t dist/ArchiBIM_v0.3.0.rbz | tail -1
+      - uses: actions/upload-artifact@v4
         with:
-          name: ArchiBIM_v0.2.0
-          path: dist/ArchiBIM_v0.2.0.rbz
+          name: ArchiBIM_v0.3.0
+          path: dist/ArchiBIM_v0.3.0.rbz
