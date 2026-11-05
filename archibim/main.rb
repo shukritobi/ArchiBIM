@@ -6,20 +6,31 @@ require 'securerandom'
 require_relative 'core'
 require_relative 'junctions'
 require_relative 'geometry'
+require_relative 'repair'
+require_relative 'diagnostics'
 require_relative 'tools'
 
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.3.0'
+    VERSION = '0.4.0'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
     class SelectionWatcher < Sketchup::SelectionObserver
-      def onSelectionBulkChange(_selection); ArchiBIM.refresh_panel; end
-      def onSelectionAdded(_selection, _entity); ArchiBIM.refresh_panel; end
-      def onSelectionRemoved(_selection, _entity); ArchiBIM.refresh_panel; end
-      def onSelectionCleared(_selection); ArchiBIM.refresh_panel; end
+      def onSelectionBulkChange(_selection); ArchiBIM.selection_changed; end
+      def onSelectionAdded(_selection, _entity); ArchiBIM.selection_changed; end
+      def onSelectionRemoved(_selection, _entity); ArchiBIM.selection_changed; end
+      alias onSelectedRemoved onSelectionRemoved
+      def onSelectionCleared(_selection); ArchiBIM.selection_changed; end
+    end
+
+    # Logs undo/redo, with no model mutation inside transaction callbacks.
+    class TransactionWatcher < Sketchup::ModelObserver
+      def onTransactionCommit(_model); Diagnostics.log('sketchup_commit'); end
+      def onTransactionAbort(_model); Diagnostics.log('sketchup_abort'); end
+      def onTransactionUndo(_model); Diagnostics.log('sketchup_undo'); end
+      def onTransactionRedo(_model); Diagnostics.log('sketchup_redo'); end
     end
 
     class ModelWatcher < Sketchup::AppObserver
@@ -62,13 +73,13 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch wall_alignment].include?(key)
+      !%w[stair_steps roof_pitch wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style window_panels].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if key == 'rates' || key == 'wall_alignment'
+        next if %w[rates wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       validated = Core.settings(settings.merge(patch))
@@ -260,11 +271,13 @@ module SSDigitalLab
         when 'beam'
           data.merge!('name' => 'Beam', 'length' => length,
                       'width' => s['beam_width'], 'depth' => s['beam_depth'],
+                      'alignment' => s['beam_alignment'],
                       'offset' => s['beam_offset'])
         when 'stair'
           data.merge!('name' => 'Stair', 'run' => length,
                       'width' => s['stair_width'], 'rise' => s['stair_rise'],
-                      'steps' => s['stair_steps'])
+                      'steps' => s['stair_steps'], 'style' => s['stair_style'],
+                      'landing' => s['stair_landing'], 'gap' => s['stair_gap'])
         end
       elsif %w[slab room roof footing].include?(kind)
         x0, x1 = [p1.x, p2.x].minmax
@@ -282,10 +295,14 @@ module SSDigitalLab
           data['pitch'] = s['roof_pitch']
           data['overhang'] = s['roof_overhang']
           data['eave_offset'] = s['roof_eave_offset']
+          data['roof_type'] = s['roof_type']
+          data['infill'] = s['roof_infill']
+          data['infill_thickness'] = s['roof_infill_thickness']
         end
       elsif kind == 'column'
         transform = Geom::Transformation.new(Geom::Point3d.new(p1.x, p1.y, level['elevation'].mm))
-        data.merge!('name' => 'Column', 'width' => s['column_width'],
+        data.merge!('name' => 'Column', 'alignment' => s['column_alignment'],
+                    'width' => s['column_width'],
                     'depth' => s['column_depth'], 'height' => s['column_height'])
       else
         raise "Unsupported element #{kind}"
@@ -331,6 +348,15 @@ module SSDigitalLab
     end
 
     # Nearby reference-line snapping, not just surface corner inference.
+    # Use the current story plane even in an empty file with no pickable faces.
+    def workplane_pick(view, x, y)
+      ray = view.pickray(x, y)
+      return nil if ray[1].z.abs < 0.000001
+      z = current_level['elevation'].mm
+      t = (z - ray[0].z) / ray[1].z
+      ray[0].offset(ray[1], t)
+    end
+
     def snap_wall_point(point, view, x, y)
       wanted_z = current_level['elevation'].mm
       candidates = []
@@ -365,6 +391,7 @@ module SSDigitalLab
         group = create_element(data, transform)
         rebuild_wall_junctions if kind == 'wall'
         model.commit_operation
+        Diagnostics.log('create_element', { kind: kind, id: data['id'], dimensions: data.slice('length', 'width', 'depth', 'height') })
         model.selection.clear
         model.selection.add(group)
         refresh_panel
@@ -409,14 +436,24 @@ module SSDigitalLab
                      end
       basic_fields.each { |key| Core.number(data[key], key, min: 0, max: 1_000_000) }
       Core.number(data['offset'], 'offset', min: 0, allow_zero: true) if kind == 'beam'
+      if %w[wall beam column].include?(kind)
+        raise 'Alignment must be left, center, or right' unless %w[left center right].include?(data.fetch('alignment', 'center'))
+      end
       if kind == 'roof'
         raise 'Roof pitch must be less than 80 degrees' if data['pitch'].to_f >= 80
         Core.number(data['overhang'], 'overhang', min: 0, allow_zero: true)
         Core.number(data['eave_offset'], 'eave_offset', min: 0, allow_zero: true)
+        raise 'Roof type must be gable or hip' unless %w[gable hip].include?(data.fetch('roof_type', 'gable'))
+        Core.number(data.fetch('infill_thickness', 150.0), 'infill thickness', min: 0)
       end
       if kind == 'stair'
         data['steps'] = data['steps'].to_i
         raise 'Stairs must have 1 to 100 steps' unless (1..100).cover?(data['steps'])
+        raise 'Stair must be straight or U-return' unless %w[straight u].include?(data.fetch('style', 'straight'))
+        if data.fetch('style', 'straight') == 'u'
+          raise 'U stair requires at least four steps' if data['steps'] < 4
+          raise 'Landing must be shorter than total run' if data.fetch('landing', data['width']).to_f >= data['run'].to_f
+        end
       end
       if kind == 'wall'
         raise 'Wall alignment must be left, center or right' unless %w[left center right].include?(data.fetch('alignment', 'left'))
@@ -431,12 +468,14 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment roof_type infill infill_thickness style landing gap]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment].include?(key)
+        if %w[name code notes level_id alignment roof_type style].include?(key)
           data[key] = value.to_s[0, 250]
+        elsif key == 'infill'
+          data[key] = !!value
         elsif key == 'steps'
           data[key] = Core.number(value, 'steps', min: 0, max: 100).to_i
         else
@@ -454,9 +493,12 @@ module SSDigitalLab
           delta = after['elevation'].to_f - (prior ? prior['elevation'].to_f : 0)
           group.transformation = Geom::Transformation.translation([0, 0, delta.mm]) * group.transformation
         end
+        # Rebuild from local BIM dimensions, not the group's possibly scaled axes.
+        group.transformation = Repair.normalized_transform(group.transformation)
         Geometry.build(group, data, model)
         group.layer = ensure_tag(tag_for(data))
         rebuild_wall_junctions if data['kind'] == 'wall'
+        Diagnostics.log('update_element', { id: data['id'], kind: data['kind'], fields: changes.keys })
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -481,7 +523,14 @@ module SSDigitalLab
       end
       opening = { 'id' => SecureRandom.uuid, 'kind' => kind, 'offset' => offset,
                   'width' => width, 'height' => height, 'sill' => sill,
-                  'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in') }
+                  'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in'),
+                  'marker' => fields.fetch('marker', 'hinge') }
+      if kind == 'window'
+        opening['panels'] = s['window_panels']
+        opening['outer_frame'] = s['window_outer_frame']
+        opening['inner_frame'] = s['window_inner_frame']
+        opening['glass_thickness'] = s['window_glass_thickness']
+      end
       raise 'Invalid hinge' unless %w[left right].include?(opening['hinge'])
       raise 'Invalid swing direction' unless %w[in out].include?(opening['swing'])
       Core.opening_valid?(opening, original['length'], original['height'], original.fetch('openings', []))
@@ -490,7 +539,9 @@ module SSDigitalLab
       model = Sketchup.active_model
       model.start_operation("ArchiBIM: Add #{kind}", true)
       begin
+        group.transformation = Repair.normalized_transform(group.transformation)
         Geometry.build(group, data, model)
+        Diagnostics.log('place_opening', { kind: kind, wall_id: data['id'], offset: offset, width: width })
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -511,14 +562,23 @@ module SSDigitalLab
         next unless patch.key?(key)
         open[key] = mm_from_user(patch[key], key)
       end
-      %w[hinge swing].each { |k| open[k] = patch[k] if patch.key?(k) }
+      %w[hinge swing marker].each { |k| open[k] = patch[k] if patch.key?(k) }
+      %w[outer_frame inner_frame glass_thickness].each do |k|
+        open[k] = mm_from_user(patch[k], k) if patch.key?(k) && open['kind'] == 'window'
+      end
+      if patch.key?('panels') && open['kind'] == 'window'
+        open['panels'] = Core.number(patch['panels'], 'panels', min: 0, max: 4).to_i
+      end
+      raise 'Marker must be hinge or handle' unless %w[hinge handle].include?(open.fetch('marker', 'hinge'))
       raise 'Invalid hinge' unless %w[left right].include?(open.fetch('hinge', 'left'))
       raise 'Invalid swing direction' unless %w[in out].include?(open.fetch('swing', 'in'))
       Core.wall_cells(data['length'], data['height'], data['openings'])
       model = Sketchup.active_model
       model.start_operation('ArchiBIM: Edit opening', true)
       begin
+        group.transformation = Repair.normalized_transform(group.transformation)
         Geometry.build(group, data, model)
+        Diagnostics.log('edit_opening', { opening_id: id, fields: patch.keys })
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -538,13 +598,51 @@ module SSDigitalLab
       model = Sketchup.active_model
       model.start_operation('ArchiBIM: Remove opening', true)
       begin
+        group.transformation = Repair.normalized_transform(group.transformation)
         Geometry.build(group, data, model)
+        Diagnostics.log('remove_opening', { opening_id: id })
         model.commit_operation
       rescue StandardError
         model.abort_operation
         raise
       end
       refresh_panel
+    end
+
+    # Explicit rebuilding is undoable. 'Adopt Scale' consumes SketchUp's group
+    # horizontal Scale and restores unit axes; 'saved' ignores native scaling.
+    def rebuild_bim(scope = 'selected', mode = 'saved')
+      model = Sketchup.active_model
+      targets = scope == 'all' ? elements : [[selected, data_for(selected)]].reject { |g, d| g.nil? || d.nil? }
+      raise 'Select an ArchiBIM element first' if targets.empty?
+      raise 'Invalid rebuild mode' unless %w[saved adopt_scale].include?(mode)
+      plans = targets.map do |group, old|
+        original = group.transformation
+        scales = Repair.scale_factors(original)
+        updated = mode == 'adopt_scale' ? Repair.scaled_data(old, scales[0], scales[1]) : Marshal.load(Marshal.dump(old))
+        validate_data(updated)
+        [group, updated, Repair.normalized_transform(original), scales]
+      end
+      model.start_operation("ArchiBIM: Rebuild #{scope} (#{mode})", true)
+      begin
+        plans.each do |group, data, clean, scales|
+          group.transformation = clean
+          Geometry.build(group, data, model)
+          Diagnostics.log('rebuild', { id: data['id'], kind: data['kind'], mode: mode, previous_scale: scales })
+        end
+        rebuild_wall_junctions if plans.any? { |_, d, _, _| d['kind'] == 'wall' }
+        model.commit_operation
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      refresh_panel
+      plans.length
+    end
+
+    def export_diagnostics
+      path = Diagnostics.export(Sketchup.active_model, elements)
+      UI.messagebox("Testing log saved:\n#{path}") if path
     end
 
     # Parametric footprint scaling without scaling thickness, height or openings.
@@ -795,16 +893,28 @@ module SSDigitalLab
 
     end
 
-    def refresh_panel
+    def selection_changed
+      id = data_for(selected)&.fetch('id', nil)
+      focus = !id.nil? && id != @last_selection_id
+      if id != @last_selection_id
+        Diagnostics.log('selection', { id: id })
+        @last_selection_id = id
+      end
+      refresh_panel(focus)
+    end
+
+    def refresh_panel(focus_properties = false)
       return unless @dialog && @dialog.visible?
-      @dialog.execute_script("window.ArchiBIM.receive(#{JSON.generate(panel_payload)});")
+      @dialog.execute_script("window.ArchiBIM.receive(#{JSON.generate(panel_payload)}, #{focus_properties ? 'true' : 'false'});")
     rescue StandardError => e
+      Diagnostics.error('panel_refresh', e)
       puts "ArchiBIM UI refresh: #{e.message}"
     end
 
     def callback_safe
       yield
     rescue StandardError => e
+      Diagnostics.error('callback', e)
       UI.messagebox("ArchiBIM error:\n#{e.message}")
       puts "ArchiBIM error: #{e.class}: #{e.message}\n#{e.backtrace.first(6).join("\n")}"
     ensure
@@ -812,11 +922,12 @@ module SSDigitalLab
     end
 
     def bind_callbacks(dialog)
-      dialog.add_action_callback('ready') { |_ctx| callback_safe { watch_selection(Sketchup.active_model); refresh_panel } }
+      dialog.add_action_callback('ready') { |_ctx| callback_safe { watch_selection(Sketchup.active_model); refresh_panel(!selected.nil?) } }
       dialog.add_action_callback('tool') do |_ctx, type|
         callback_safe do
+          Diagnostics.log('tool_started', { kind: type })
           if type == 'column'
-            create_column_at_origin
+            Sketchup.active_model.select_tool(ColumnTool.new)
           elsif %w[door window].include?(type)
             Sketchup.active_model.select_tool(OpeningTool.new(type))
           elsif %w[wall slab beam stair room roof footing].include?(type)
@@ -827,6 +938,8 @@ module SSDigitalLab
         end
       end
       dialog.add_action_callback('set_tag') { |_ctx, name, visible, style| callback_safe { set_tag(name, visible, style) } }
+      dialog.add_action_callback('rebuild') { |_ctx, scope, mode| callback_safe { rebuild_bim(scope, mode) } }
+      dialog.add_action_callback('diagnostics') { |_ctx| callback_safe { export_diagnostics } }
       dialog.add_action_callback('resize_footprint') do |_ctx, percentage|
         callback_safe { resize_footprint(Float(percentage) / 100.0) }
       end
@@ -862,7 +975,9 @@ module SSDigitalLab
       return if @watched[key]
       observer = SelectionWatcher.new
       model.selection.add_observer(observer)
-      @watched[key] = observer
+      transactions = TransactionWatcher.new
+      model.add_observer(transactions)
+      @watched[key] = [observer, transactions]
     end
 
     def show_panel
@@ -897,6 +1012,11 @@ module SSDigitalLab
       tools.add_item('Insert door') { Sketchup.active_model.select_tool(OpeningTool.new('door')) }
       tools.add_item('Insert window') { Sketchup.active_model.select_tool(OpeningTool.new('window')) }
       tools.add_item('Draw slab') { Sketchup.active_model.select_tool(DrawTool.new('slab')) }
+      tools.add_item('Place column') { Sketchup.active_model.select_tool(ColumnTool.new) }
+      tools.add_item('Place beam') { Sketchup.active_model.select_tool(DrawTool.new('beam')) }
+      tools.add_item('Rebuild selected from saved dimensions') { callback_safe { rebuild_bim('selected', 'saved') } }
+      tools.add_item('Repair selected after native Scale') { callback_safe { rebuild_bim('selected', 'adopt_scale') } }
+      tools.add_item('Export testing diagnostics') { callback_safe { export_diagnostics } }
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
       tools.add_item('Export schedule to CSV') { callback_safe { export_csv } }
@@ -907,6 +1027,7 @@ module SSDigitalLab
       @model_watcher = ModelWatcher.new
       Sketchup.add_observer(@model_watcher)
       watch_selection(Sketchup.active_model)
+      Diagnostics.log('extension_loaded', { sketchup: Sketchup.version })
       @installed = true
     end
 

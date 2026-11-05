@@ -9,15 +9,19 @@ module SSDigitalLab
       ALLOWED_KINDS = %w[wall slab column beam stair room roof footing].freeze
       DEFAULTS = {
         'wall_height' => 3000.0, 'wall_thickness' => 150.0,
-        'wall_alignment' => 'center',
+        'wall_alignment' => 'center', 'column_alignment' => 'center', 'beam_alignment' => 'center',
         'slab_thickness' => 150.0, 'footing_thickness' => 450.0,
         'roof_thickness' => 125.0, 'roof_pitch' => 25.0, 'roof_overhang' => 450.0,
+        'roof_type' => 'gable', 'roof_infill' => true, 'roof_infill_thickness' => 150.0,
         'roof_eave_offset' => 3000.0, 'column_width' => 300.0,
         'column_depth' => 300.0, 'column_height' => 3000.0,
         'beam_width' => 300.0, 'beam_depth' => 450.0, 'beam_offset' => 2400.0,
         'door_width' => 900.0, 'door_height' => 2100.0,
         'window_width' => 1200.0, 'window_height' => 1200.0, 'window_sill' => 900.0,
+        'window_panels' => 2, 'window_outer_frame' => 50.0,
+        'window_inner_frame' => 30.0, 'window_glass_thickness' => 3.0,
         'stair_width' => 1100.0, 'stair_steps' => 18, 'stair_rise' => 3000.0,
+        'stair_style' => 'straight', 'stair_landing' => 1100.0, 'stair_gap' => 150.0,
         'rates' => { 'wall' => 120.0, 'slab' => 190.0, 'column' => 650.0,
                      'beam' => 650.0, 'stair' => 4000.0, 'room' => 0.0,
                      'door' => 450.0, 'window' => 650.0,
@@ -39,9 +43,19 @@ module SSDigitalLab
         return h unless raw.is_a?(Hash)
         (DEFAULTS.keys - ['rates']).each do |key|
           next unless raw.key?(key)
-          if key == 'wall_alignment'
-            raise ArgumentError, 'Wall alignment must be left, center or right' unless %w[left center right].include?(raw[key])
+          if %w[wall_alignment column_alignment beam_alignment].include?(key)
+            raise ArgumentError, "#{key} must be left, center or right" unless %w[left center right].include?(raw[key])
             h[key] = raw[key]
+          elsif key == 'roof_type'
+            raise ArgumentError, 'Roof style must be gable or hip' unless %w[gable hip].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'roof_infill'
+            h[key] = !!raw[key]
+          elsif key == 'stair_style'
+            raise ArgumentError, 'Stair style must be straight or u' unless %w[straight u].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'window_panels'
+            h[key] = number(raw[key], key, min: 0, max: 4).to_i
           elsif key == 'stair_steps'
             h[key] = number(raw[key], key, min: 0, max: 100).to_i
           elsif key == 'roof_pitch'
@@ -136,8 +150,24 @@ module SSDigitalLab
           q['volume_m3'] = Float(data['length']) * Float(data['width']) * Float(data['depth']) / 1_000_000_000.0
         when 'stair'
           q['count'] = 1
-          q['length_m'] = Float(data['run']) / 1000.0
-          q['volume_m3'] = Float(data['run']) * Float(data['width']) * Float(data['rise']) * (Float(data['steps']) + 1) / (2.0 * Float(data['steps'])) / 1_000_000_000.0
+          run = Float(data['run']); width = Float(data['width'])
+          rise = Float(data['rise']); steps = Float(data['steps'])
+          q['length_m'] = run / 1000.0
+          if data.fetch('style', 'straight') == 'u'
+            first = (steps / 2.0).ceil
+            second = steps - first
+            landing = Float(data.fetch('landing', width))
+            gap = Float(data.fetch('gap', 150.0))
+            tread = (run - landing) / first
+            r = rise / steps
+            flight1 = (first * (first + 1) / 2.0) * r * width * tread
+            flight2 = (second * first + second * (second + 1) / 2.0) * r * width * tread
+            landing_volume = (2 * width + gap) * landing * [first * r, 150.0].min
+            q['volume_m3'] = (flight1 + flight2 + landing_volume) / 1_000_000_000.0
+          else
+            q['volume_m3'] = (run / steps) * width * (rise / steps) *
+                             (steps * (steps + 1) / 2.0) / 1_000_000_000.0
+          end
         when 'room'
           q['area_m2'] = Float(data['width']) * Float(data['depth']) / 1_000_000.0
           q['net_area_m2'] = q['area_m2']

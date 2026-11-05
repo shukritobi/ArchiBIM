@@ -120,49 +120,69 @@ module SSDigitalLab
         points.each_cons(2) { |a, b| symbol_edge(group, tag, a, b) }
       end
 
+      # Render the plan leaf and dashed swing arc independently of the
+      # elevation marker. Elevation marker uses a wedge, not a single slash:
+      # the point identifies the hinge or handle edge, configurable per opening.
       def self.opening_symbols(child, wall, opening, model)
-        x = opening['offset'].to_f; width = opening['width'].to_f
-        sill = opening['sill'].to_f; height = opening['height'].to_f
+        x = opening['offset'].to_f
+        width = opening['width'].to_f
+        sill = opening['sill'].to_f
+        height = opening['height'].to_f
         low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
         hinge_left = opening.fetch('hinge', 'left') != 'right'
         swing_sign = opening.fetch('swing', 'in') == 'out' ? -1.0 : 1.0
+        label = (ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name'] || 'Unknown'
         if opening['kind'] == 'door'
-          plan, tag = symbol_group(child, wall, opening, model, 'plan')
+          plan, dashed = symbol_group(child, wall, opening, model, 'plan')
           hinge = hinge_left ? x : x + width
-          close = hinge_left ? (x + width) : x
           y = (low + high) / 2.0
-          z = 35.0 # Below the +1200 mm cut plane and visible in plan.
-          # Dashed ninety-degree swing arc, visible on its own Tag.
-          start_angle = hinge_left ? 0.0 : Math::PI
-          end_angle = start_angle + (hinge_left ? 1.0 : -1.0) * swing_sign * Math::PI / 2.0
-          arc = (0..16).map do |n|
-            angle = start_angle + (end_angle - start_angle) * n / 16.0
-            [hinge + width * Math.cos(angle), y + width * Math.sin(angle), z]
+          z = 20.0
+          a0 = hinge_left ? 0.0 : Math::PI
+          a1 = a0 + (hinge_left ? 1.0 : -1.0) * swing_sign * Math::PI / 2.0
+          arc = (0..32).map do |n|
+            a = a0 + (a1 - a0) * n / 32.0
+            [hinge + width * Math.cos(a), y + width * Math.sin(a), z]
           end
-          symbol_polyline(plan, tag, arc)
-          symbol_edge(plan, tag, [hinge, y, z], arc.last)
-          # Closed-position plan leaf is intentionally solid on a separate Tag.
-          edge_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Door Leaf | #{(ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name']}")
-          leaf = child.entities.add_group; leaf.layer = edge_tag; leaf.name = '2D Plan Door Leaf'
-          symbol_edge(leaf, edge_tag, [hinge, y, z], [close, y, z])
-        end
-        elev, tag = symbol_group(child, wall, opening, model, 'elevation')
-        y = high + 12.0
-        # Elevation dashed open-indicator graphics are independent of the frame.
-        if opening['kind'] == 'window'
-          symbol_edge(elev, tag, [x, y, sill], [x + width / 2.0, y, sill + height / 2.0])
-          symbol_edge(elev, tag, [x + width, y, sill], [x + width / 2.0, y, sill + height / 2.0])
-          symbol_edge(elev, tag, [x + width / 2.0, y, sill + height / 2.0], [x + width / 2.0, y, sill + height])
+          symbol_polyline(plan, dashed, arc)
+          leaf_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Door Leaf | #{label}")
+          leaf = child.entities.add_group
+          leaf.name = 'Door plan leaf (open)'
+          leaf.layer = leaf_tag
+          symbol_edge(leaf, leaf_tag, [hinge, y, z], arc.last)
         else
-          symbol_edge(elev, tag, [hinge_left ? x : x + width, y, sill],
-                      [hinge_left ? x + width : x, y, sill + height])
+          plan_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Window | #{label}")
+          plan = child.entities.add_group
+          plan.name = 'Window plan centreline'
+          plan.layer = plan_tag
+          panes = opening.fetch('panels', 2).to_i
+          mid_y = (low + high) / 2.0
+          symbol_edge(plan, plan_tag, [x, mid_y, sill + 25], [x + width, mid_y, sill + 25])
+          (1...panes).each do |index|
+            px = x + width * index / panes
+            symbol_edge(plan, plan_tag, [px, low, sill + 25], [px, high, sill + 25])
+          end
         end
-        if opening['kind'] == 'window'
-          # Plan projection of glazing centreline, separate from elevation swing.
-          plan_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Window | #{(ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name']}")
-          plan = child.entities.add_group; plan.layer = plan_tag; plan.name = '2D Plan Window'
-          symbol_edge(plan, plan_tag, [x, (low + high) / 2.0, sill],
-                      [x + width, (low + high) / 2.0, sill])
+        elev, dashed = symbol_group(child, wall, opening, model, 'elevation')
+        # A separate tag controls the line style and hiding in 3D renders.
+        y = high + 16.0
+        count = opening['kind'] == 'window' ? opening.fetch('panels', 2).to_i : 1
+        count = [[count, 1].max, 4].min
+        (0...count).each do |index|
+          left = x + width * index / count
+          right = x + width * (index + 1) / count
+          hinge_on_left = if opening['kind'] == 'window' && count == 2
+                            index == 0
+                          else
+                            hinge_left
+                          end
+          marker = opening.fetch('marker', 'hinge')
+          point_on_left = marker == 'hinge' ? hinge_on_left : !hinge_on_left
+          point_x = point_on_left ? left : right
+          far_x = point_on_left ? right : left
+          # Two equal-height diagonals meeting at the hinge/handle midpoint.
+          symbol_edge(elev, dashed, [far_x, y, sill], [point_x, y, sill + height / 2.0])
+          symbol_edge(elev, dashed, [point_x, y, sill + height / 2.0],
+                      [far_x, y, sill + height])
         end
       end
 
@@ -173,44 +193,60 @@ module SSDigitalLab
         width = opening['width'].to_f
         height = opening['height'].to_f
         low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
-        t = high - low
-        frame = [45.0, width / 7.0, height / 7.0].min
         child = wall.fetch('_entities').add_group
         child.name = "#{kind.capitalize} #{opening['id'].to_s[0, 8]}"
         child.set_attribute('SSDigitalLab_ArchiBIM', 'hosted', true)
         child.set_attribute('SSDigitalLab_ArchiBIM', 'ifc', IFC.fetch(kind))
         child.set_attribute('SSDigitalLab_ArchiBIM', 'data', JSON.generate(opening))
-        frame_mat = material(model, 'frame')
-        # Frame on inside face, with jambs and header. No sill across floor-height doors.
-        y0 = (low + high - 65.0) / 2.0
-        y1 = (low + high + 65.0) / 2.0
+        outer = [opening.fetch('outer_frame', kind == 'window' ? 50.0 : 45.0).to_f,
+                 width / 6.0, height / 6.0].min
+        sash = [opening.fetch('inner_frame', 30.0).to_f, width / 12.0, height / 12.0].min
+        glass = opening.fetch('glass_thickness', 3.0).to_f
+        mid_y = (low + high) / 2.0
+        frame_depth = [high - low, 65.0].min
+        y0, y1 = mid_y - frame_depth / 2.0, mid_y + frame_depth / 2.0
         frame_group = child.entities.add_group
-        box(frame_group.entities, x, x + frame, y0, y1, z, z + height)
-        box(frame_group.entities, x + width - frame, x + width, y0, y1, z, z + height)
-        box(frame_group.entities, x + frame, x + width - frame, y0, y1,
-            z + height - frame, z + height)
-        if kind == 'window'
-          box(frame_group.entities, x + frame, x + width - frame, y0, y1,
-              z, z + frame)
-        end
-        frame_group.material = frame_mat
-        inner_left = x + frame
-        inner_right = x + width - frame
-        inner_bottom = z + (kind == 'window' ? frame : 8.0)
-        inner_top = z + height - frame
-        if inner_right > inner_left && inner_top > inner_bottom
-          panel = child.entities.add_group
-          if kind == 'window'
-            # Glass is inset from the frame; independent translucent material.
-            mid = (low + high) / 2.0
-            box(panel.entities, inner_left, inner_right, mid - 4.0, mid + 4.0,
-                inner_bottom, inner_top)
-            panel.material = material(model, 'glass')
-          else
-            mid = (low + high) / 2.0
-            box(panel.entities, inner_left, inner_right, mid - 20.0, mid + 20.0,
-                inner_bottom, inner_top)
+        frame_group.name = 'Outer frame'
+        frame_group.material = material(model, 'frame')
+        box(frame_group.entities, x, x + outer, y0, y1, z, z + height)
+        box(frame_group.entities, x + width - outer, x + width, y0, y1, z, z + height)
+        box(frame_group.entities, x + outer, x + width - outer, y0, y1,
+            z + height - outer, z + height)
+        box(frame_group.entities, x + outer, x + width - outer, y0, y1,
+            z, z + outer) if kind == 'window'
+        inner_l, inner_r = x + outer, x + width - outer
+        inner_b, inner_t = z + (kind == 'window' ? outer : 8.0), z + height - outer
+        if kind == 'door'
+          if inner_r > inner_l && inner_t > inner_b
+            panel = child.entities.add_group
+            panel.name = 'Door leaf'
+            box(panel.entities, inner_l, inner_r, mid_y - 20.0, mid_y + 20.0, inner_b, inner_t)
             panel.material = material(model, 'door')
+          end
+        else
+          count = [[opening.fetch('panels', 2).to_i, 1].max, 4].min
+          pane_width = (inner_r - inner_l) / count
+          (0...count).each do |index|
+            xl = inner_l + index * pane_width
+            xr = inner_l + (index + 1) * pane_width
+            next unless xr - xl > 2.0 * sash + 5.0 && inner_t - inner_b > 2.0 * sash + 5.0
+            pane = child.entities.add_group
+            pane.name = "Casement #{index + 1} of #{count}"
+            sash_group = pane.entities.add_group
+            sash_group.name = 'Inner sash frame'
+            sash_group.material = material(model, 'frame')
+            [[xl, xl + sash, inner_b, inner_t],
+             [xr - sash, xr, inner_b, inner_t],
+             [xl + sash, xr - sash, inner_b, inner_b + sash],
+             [xl + sash, xr - sash, inner_t - sash, inner_t]].each do |a, b, c, d|
+              box(sash_group.entities, a, b, mid_y - 18, mid_y + 18, c, d)
+            end
+            glass_group = pane.entities.add_group
+            glass_group.name = "#{glass} mm glazing"
+            box(glass_group.entities, xl + sash, xr - sash,
+                mid_y - glass / 2.0, mid_y + glass / 2.0,
+                inner_b + sash, inner_t - sash)
+            glass_group.material = material(model, 'glass')
           end
         end
         opening_symbols(child, wall, opening, model)
@@ -223,45 +259,106 @@ module SSDigitalLab
         run = data['run'].to_f
         rise = data['rise'].to_f
         width = data['width'].to_f
-        t = run / n
-        r = rise / n
-        profile = [[0.0, 0.0, 0.0], [0.0, 0.0, r]]
-        (1..n).each do |i|
-          profile << [i * t, 0.0, i * r]
-          profile << [i * t, 0.0, (i + 1) * r] if i < n
+        step_rise = rise / n
+        style = data.fetch('style', 'straight')
+        if style == 'u'
+          first = (n / 2.0).ceil
+          second = n - first
+          raise ArgumentError, 'U stair requires at least four risers' if second < 2
+          landing = data.fetch('landing', width).to_f
+          gap = data.fetch('gap', 150.0).to_f
+          flight = run - landing
+          raise ArgumentError, 'Stair run must exceed landing length' if flight < 200.0
+          tread = flight / [first, second].max
+          # First flight ascends +X; return flight ascends -X after landing.
+          (0...first).each do |i|
+            x0 = i * tread; x1 = (i + 1) * tread
+            box(entities, x0, x1, 0, width, 0, step_rise * (i + 1))
+          end
+          box(entities, flight, flight + landing, 0, 2.0 * width + gap,
+              [step_rise * first - 150.0, 0].max, step_rise * first)
+          (0...second).each do |i|
+            x0 = flight - (i + 1) * tread; x1 = flight - i * tread
+            box(entities, x0, x1, width + gap, 2.0 * width + gap,
+                0, step_rise * (first + i + 1))
+          end
+        else
+          tread = run / n
+          (0...n).each do |i|
+            box(entities, i * tread, (i + 1) * tread, 0, width,
+                0, step_rise * (i + 1))
+          end
         end
-        profile << [run, 0.0, 0.0]
-        face = entities.add_face(profile.map { |xyz| point(*xyz) })
-        raise 'Cannot generate staircase profile' unless face
-        face.reverse! if face.normal.dot(Y_AXIS) < 0
-        face.pushpull(width.mm)
       end
 
-      def self.roof(entities, data)
+      def self.roof_panel(entities, polygon, thickness)
+        bottom = polygon.map { |p| [p[0], p[1], p[2] - thickness] }
+        quad(entities, polygon, [0, 0, 1])
+        quad(entities, bottom.reverse, [0, 0, -1])
+        polygon.each_index do |index|
+          j = (index + 1) % polygon.length
+          quad(entities, [polygon[index], bottom[index], bottom[j], polygon[j]], [0, 0, 1])
+        end
+      end
+
+      def self.roof(entities, data, model)
         pitch = data['pitch'].to_f * Math::PI / 180.0
-        overhang = data['overhang'].to_f
+        o = data['overhang'].to_f
         width = data['width'].to_f
         depth = data['depth'].to_f
         thickness = data['thickness'].to_f
         base = data['eave_offset'].to_f
-        eave_x0 = -overhang
-        eave_x1 = width + overhang
-        mid = width / 2.0
-        ridge = base + (width / 2.0 + overhang) * Math.tan(pitch)
-        y0 = -overhang
-        y1 = depth + overhang
-        [[eave_x0, mid, base, ridge], [mid, eave_x1, ridge, base]].each do |x0, x1, z0, z1|
-          quad(entities, [[x0,y0,z0],[x1,y0,z1],[x1,y1,z1],[x0,y1,z0]], [0,0,1])
-          quad(entities, [[x0,y0,z0-thickness],[x0,y1,z0-thickness],
-                          [x1,y1,z1-thickness],[x1,y0,z1-thickness]], [0,0,-1])
-          quad(entities, [[x0,y0,z0],[x0,y0,z0-thickness],
-                          [x1,y0,z1-thickness],[x1,y0,z1]], [0,-1,0])
-          quad(entities, [[x0,y1,z0],[x1,y1,z1],
-                          [x1,y1,z1-thickness],[x0,y1,z0-thickness]], [0,1,0])
-          quad(entities, [[x0,y0,z0],[x0,y1,z0],
-                          [x0,y1,z0-thickness],[x0,y0,z0-thickness]], [-1,0,0])
-          quad(entities, [[x1,y0,z1],[x1,y0,z1-thickness],
-                          [x1,y1,z1-thickness],[x1,y1,z1]], [1,0,0])
+        x0, x1, y0, y1 = -o, width + o, -o, depth + o
+        xm, ym = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        mode = data.fetch('roof_type', 'gable')
+        if mode == 'hip'
+          w, d = x1 - x0, y1 - y0
+          peak = base + [w, d].min / 2.0 * Math.tan(pitch)
+          if w <= d
+            ya = y0 + w / 2.0; yb = y1 - w / 2.0
+            planes = [
+              [[x0,y0,base],[x0,y1,base],[xm,yb,peak],[xm,ya,peak]],
+              [[x1,y0,base],[xm,ya,peak],[xm,yb,peak],[x1,y1,base]],
+              [[x0,y0,base],[xm,ya,peak],[x1,y0,base]],
+              [[x0,y1,base],[x1,y1,base],[xm,yb,peak]]]
+          else
+            xa = x0 + d / 2.0; xb = x1 - d / 2.0
+            planes = [
+              [[x0,y0,base],[xa,ym,peak],[xb,ym,peak],[x1,y0,base]],
+              [[x0,y1,base],[x1,y1,base],[xb,ym,peak],[xa,ym,peak]],
+              [[x0,y0,base],[x0,y1,base],[xa,ym,peak]],
+              [[x1,y0,base],[xb,ym,peak],[x1,y1,base]]]
+          end
+          planes.each { |polygon| roof_panel(entities, polygon, thickness) }
+        else
+          # Gable ridge along Y; wall-side eaves at X=0 and X=width.
+          ridge = base + (width / 2.0 + o) * Math.tan(pitch)
+          [[ [x0,y0,base],[xm,y0,ridge],[xm,y1,ridge],[x0,y1,base] ],
+           [ [xm,y0,ridge],[x1,y0,base],[x1,y1,base],[xm,y1,ridge] ]].each do |poly|
+            roof_panel(entities, poly, thickness)
+          end
+          if data.fetch('infill', true)
+            # Vertical gable closure, not a ceiling. Positioned at both wall-end
+            # planes; follows ridge height and roof pitch for each regeneration.
+            edge_top = base + o * Math.tan(pitch) - thickness
+            ridge_under = ridge - thickness
+            if ridge_under > base + 1.0
+              [0.0, depth - data.fetch('infill_thickness', 150.0).to_f].each do |y|
+                group = entities.add_group
+                group.name = 'Gable wall infill'
+                level = (ArchiBIM.levels.find { |l| l['id'] == data['level_id'] } || {})['name'] || 'Ground Floor'
+                group.layer = ArchiBIM.ensure_tag("AB | Roof infill | #{level}")
+                thick = data.fetch('infill_thickness', 150.0).to_f
+                points = [[0,y,base],[width,y,base],[width,y,[base,edge_top].max],
+                          [width/2.0,y,ridge_under],[0,y,[base,edge_top].max]]
+                face = group.entities.add_face(points.map { |xyz| point(*xyz) })
+                if face
+                  face.pushpull(thick.mm)
+                  group.material = material(model, 'wall')
+                end
+              end
+            end
+          end
         end
       end
 
@@ -295,14 +392,18 @@ module SSDigitalLab
           box(group.entities, 0.0, data['width'].to_f, 0.0, data['depth'].to_f,
               -data['thickness'].to_f, 0.0)
         when 'roof'
-          roof(group.entities, data)
+          roof(group.entities, data, model)
         when 'column'
-          box(group.entities, 0.0, data['width'].to_f, 0.0, data['depth'].to_f,
+          w = data['width'].to_f
+          h = data['depth'].to_f
+          alignment = data.fetch('alignment', 'center')
+          xmin = alignment == 'left' ? 0.0 : (alignment == 'right' ? -w : -w / 2.0)
+          box(group.entities, xmin, xmin + w, -h / 2.0, h / 2.0,
               0.0, data['height'].to_f)
         when 'beam'
-          half = data['width'].to_f / 2.0
+          low, high = Junctions.side_offsets(data['width'], data.fetch('alignment', 'center'))
           base = data['offset'].to_f
-          box(group.entities, 0.0, data['length'].to_f, -half, half,
+          box(group.entities, 0.0, data['length'].to_f, low, high,
               base, base + data['depth'].to_f)
         when 'stair'
           stair(group.entities, data)

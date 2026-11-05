@@ -31,8 +31,8 @@ module SSDigitalLab
 
       def onLButtonDown(_flags, x, y, view)
         @input.pick(view, x, y)
-        return unless @input.valid?
-        p = @hover || @input.position
+        p = @hover || (@input.position if @input.valid?) || ArchiBIM.workplane_pick(view, x, y)
+        return unless p
         if @first.nil?
           @first = p
           Sketchup.status_text = "Click opposite corner. Type dimensions in Measurements, e.g. 20',70'."
@@ -44,8 +44,10 @@ module SSDigitalLab
 
       def finish(point, view)
         ArchiBIM.create_from_tool(@kind, @first, point)
+        Diagnostics.log('draw_complete', { kind: @kind, start_mm: @first.to_a.map(&:to_mm), end_mm: point.to_a.map(&:to_mm) })
         @first = (@kind == 'wall' ? point : nil)
       rescue StandardError => e
+        Diagnostics.error('draw_tool', e)
         UI.messagebox("ArchiBIM: #{e.message}")
         @first = nil
       ensure
@@ -97,9 +99,9 @@ module SSDigitalLab
         if FOOTPRINTS.include?(@kind)
           pts = [a, Geom::Point3d.new(b.x, a.y, z), b, Geom::Point3d.new(a.x, b.y, z)]
           view.draw(GL_LINE_LOOP, pts)
-        elsif @kind == 'wall'
-          th = ArchiBIM.settings['wall_thickness']
-          alignment = ArchiBIM.settings['wall_alignment']
+        elsif %w[wall beam].include?(@kind)
+          th = ArchiBIM.settings[@kind == 'wall' ? 'wall_thickness' : 'beam_width']
+          alignment = ArchiBIM.settings[@kind == 'wall' ? 'wall_alignment' : 'beam_alignment']
           low, high = Junctions.side_offsets(th, alignment)
           dx = b.x - a.x; dy = b.y - a.y
           magnitude = Math.hypot(dx, dy)
@@ -121,6 +123,75 @@ module SSDigitalLab
       def getExtents
         box = Geom::BoundingBox.new
         box.add(@first) if @first
+        box.add(@hover) if @hover
+        box
+      end
+    end
+
+    # Single-click column placement with live/ghost preview. The placement
+    # point is the middle of the column width for centre alignment, and the
+    # left/right face centre for left/right alignment.
+    class ColumnTool
+      def initialize
+        @input = Sketchup::InputPoint.new
+        @hover = nil
+      end
+
+      def activate
+        Sketchup.status_text = 'ArchiBIM Column: hover to preview, click the column anchor. ' \
+                               'Choose Left / Center / Right in the BIM Manager.'
+      end
+
+      def deactivate(view); view.invalidate if view; end
+
+      def onMouseMove(_flags, x, y, view)
+        @input.pick(view, x, y)
+        @hover = @input.valid? ? @input.position : ArchiBIM.workplane_pick(view, x, y)
+        view.tooltip = 'Column live placement preview' if @hover
+        view.invalidate
+      end
+
+      def onLButtonDown(_flags, x, y, view)
+        onMouseMove(0, x, y, view)
+        return unless @hover
+        ArchiBIM.create_from_tool('column', @hover, @hover)
+        Diagnostics.log('column_placed', { position_mm: @hover.to_a.map(&:to_mm) })
+        view.invalidate
+      rescue StandardError => error
+        Diagnostics.error('column_tool', error)
+        UI.messagebox("ArchiBIM Column: #{error.message}")
+      end
+
+      def onCancel(_reason, view)
+        @hover = nil
+        view.invalidate
+      end
+
+      def draw(view)
+        return unless @hover
+        s = ArchiBIM.settings
+        width = s['column_width']; depth = s['column_depth']; height = s['column_height']
+        alignment = s['column_alignment']
+        left = alignment == 'left' ? 0 : (alignment == 'right' ? -width : -width / 2.0)
+        right = left + width
+        bottom, top = -depth / 2.0, depth / 2.0
+        z = ArchiBIM.current_level['elevation'].mm
+        origin = Geom::Point3d.new(@hover.x, @hover.y, z)
+        vertices = [
+          [left,bottom,0], [right,bottom,0], [right,top,0], [left,top,0],
+          [left,bottom,height], [right,bottom,height], [right,top,height], [left,top,height]
+        ].map { |x,y,h| Geom::Point3d.new(origin.x + x.mm, origin.y + y.mm, origin.z + h.mm) }
+        view.drawing_color = Sketchup::Color.new(53, 202, 180)
+        view.line_width = 2
+        view.line_stipple = '-'
+        view.draw(GL_LINE_LOOP, vertices[0,4])
+        view.draw(GL_LINE_LOOP, vertices[4,4])
+        (0...4).each { |i| view.draw(GL_LINES, [vertices[i],vertices[i+4]]) }
+        view.line_stipple = ''
+      end
+
+      def getExtents
+        box = Geom::BoundingBox.new
         box.add(@hover) if @hover
         box
       end
