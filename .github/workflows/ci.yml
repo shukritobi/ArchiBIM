@@ -1,0 +1,39 @@
+name: ArchiBIM Ruby tests and RBZ build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - name: Validate Ruby syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -c ArchiBIM.rb
+          for file in archibim/*.rb; do
+            ruby -c "$file"
+          done
+      - name: Run core calculation tests
+        run: ruby test/test_core.rb
+      - name: Build installable SketchUp extension
+        run: |
+          mkdir -p dist
+          zip -q -r dist/ArchiBIM_v0.2.0.rbz ArchiBIM.rb archibim
+          unzip -t dist/ArchiBIM_v0.2.0.rbz | tail -1
+      - name: Upload RBZ as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchiBIM_v0.2.0
+          path: dist/ArchiBIM_v0.2.0.rbz
