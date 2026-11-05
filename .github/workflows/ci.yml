@@ -5,12 +5,15 @@ on:
   pull_request:
     branches: [main]
 permissions:
-  contents: read
+  contents: write
 jobs:
   test-and-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
@@ -18,18 +21,34 @@ jobs:
         run: |
           ruby -c ArchiBIM.rb
           for file in archibim/*.rb; do ruby -c "$file"; done
-      - name: Run all Ruby regression tests
+      - name: Run Ruby regression tests
         run: ruby -e 'Dir["test/test_*.rb"].sort.each { |file| require_relative file }'
       - name: Validate embedded UI script
         run: |
           sed -n '/<script>/,/<\/script>/p' archibim/ui/panel.html | sed '1d;$d' > /tmp/archibim-panel.js
           node --check /tmp/archibim-panel.js
-      - name: Build RBZ and verify contents
+      - name: Build installable RBZ and full source archives
         run: |
           mkdir -p dist
-          zip -q -r dist/ArchiBIM_v0.5.0.rbz ArchiBIM.rb archibim -x '*.tmp'
-          unzip -t dist/ArchiBIM_v0.5.0.rbz | tail -1
+          zip -q -r dist/ArchiBIM_v0.5.1.rbz ArchiBIM.rb archibim -x '*.tmp'
+          cp dist/ArchiBIM_v0.5.1.rbz dist/ArchiBIM_latest.rbz
+          zip -q -r dist/ArchiBIM_Source_v0.5.1.zip ArchiBIM.rb archibim docs test README.md LICENSE.txt .github
+          unzip -t dist/ArchiBIM_latest.rbz | tail -1
+          unzip -t dist/ArchiBIM_Source_v0.5.1.zip | tail -1
+      - name: Publish direct download assets to main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/ArchiBIM_v0.5.1.rbz dist/ArchiBIM_latest.rbz dist/ArchiBIM_Source_v0.5.1.zip
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: publish ArchiBIM v0.5.1 RBZ [skip ci]'
+            git push origin HEAD:main
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: ArchiBIM_v0.5.0
-          path: dist/ArchiBIM_v0.5.0.rbz
+          name: ArchiBIM_v0.5.1
+          path: |
+            dist/ArchiBIM_v0.5.1.rbz
+            dist/ArchiBIM_latest.rbz
+            dist/ArchiBIM_Source_v0.5.1.zip

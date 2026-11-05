@@ -1,4 +1,4 @@
-# ArchiBIM 0.5.0
+# ArchiBIM 0.5.1
 
 **A practical parametric architecture/BIM extension for SketchUp Desktop**  
 Built by SS Digital Lab · 5 November 2026
@@ -37,9 +37,9 @@ If SketchUp disallows the unsigned extension, review your Extension Manager load
 
 Each model object is a SketchUp group with an `SSDigitalLab_ArchiBIM` attribute dictionary, plus a tag named `AB | ...`. All stored geometry dimensions are **millimetres**; quantities report metres/m²/m³. Costs in the UI are **illustrative RM estimates**, not verified material or construction prices.
 
-## 0.5 updates and limitations
+## 0.5.1 hotfix and limitations
 
-**[Read v0.5 release notes](docs/V0_5_RELEASE_NOTES.md).** Includes double-casement windows, wedge elevation markers, center/left/right structural placement previews, two staircase families, hip roofs, gable-end infill, inspector auto-focus, scaled-group repair and diagnostics. The geometry join solver is still limited and desktop validation remains required. The stable direct RBZ URL after GitHub deployment is `https://raw.githubusercontent.com/shukritobi/ArchiBIM/main/dist/ArchiBIM_latest.rbz`.
+**[Read v0.5.1 hotfix notes](docs/V0_5_1_RELEASE_NOTES.md)** and the [v0.5 feature release](docs/V0_5_RELEASE_NOTES.md). Includes double-casement windows, wedge elevation markers, center/left/right structural placement previews, two staircase families, hip roofs, gable-end infill, inspector auto-focus, scaled-group repair and diagnostics. The 0.5.1 release fixes a confirmed SketchUp `Geom::Vector3d` error affecting opening placement, property updates and Scale repair. The geometry join solver is still limited and desktop validation remains required. The stable direct RBZ URL after GitHub deployment is `https://raw.githubusercontent.com/shukritobi/ArchiBIM/main/dist/ArchiBIM_latest.rbz`.
 
 ## Getting started
 

@@ -13,7 +13,7 @@ require_relative 'tools'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.5.0'
+    VERSION = '0.5.1'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 

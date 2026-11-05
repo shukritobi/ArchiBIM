@@ -39,7 +39,10 @@ module SSDigitalLab
         x, y, z = transform.xaxis, transform.yaxis, transform.zaxis
         raise ArgumentError, 'Cannot normalize a collapsed BIM element' if [x.length, y.length, z.length].any? { |v| v < 0.00001 }
         x.normalize!
-        y -= x * y.dot(x)
+        # SketchUp's Vector3d#* computes a CROSS PRODUCT and refuses scalars.
+        # Orthogonalize using the supported Vector3d.linear_combination API.
+        projection = y.dot(x)
+        y = Geom::Vector3d.linear_combination(1.0, y, -projection, x)
         raise ArgumentError, 'Cannot repair a near-parallel/sheared axis' if y.length < 0.00001
         y.normalize!
         normal = x.cross(y)
