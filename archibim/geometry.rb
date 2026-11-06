@@ -21,7 +21,8 @@ module SSDigitalLab
       IFC = { 'wall' => 'IfcWall', 'slab' => 'IfcSlab', 'column' => 'IfcColumn',
               'beam' => 'IfcBeam', 'stair' => 'IfcStair', 'room' => 'IfcSpace',
               'roof' => 'IfcRoof', 'footing' => 'IfcFooting',
-              'door' => 'IfcDoor', 'window' => 'IfcWindow' }.freeze
+              'door' => 'IfcDoor', 'window' => 'IfcWindow',
+              'sliding_door' => 'IfcDoor' }.freeze
 
       def self.point(x, y, z)
         Geom::Point3d.new(x.mm, y.mm, z.mm)
@@ -143,6 +144,55 @@ module SSDigitalLab
         end
       end
 
+      def self.frame_bounds(wall, opening)
+        low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
+        depth = [high - low, 65.0].min
+        mount = opening.fetch('mount', 'center')
+        exterior = wall.fetch('exterior_side', 'right')
+        side = case mount
+               when 'exterior' then exterior
+               when 'interior' then exterior == 'left' ? 'right' : 'left'
+               else 'center'
+               end
+        case side
+        when 'left' then [high - depth, high]
+        when 'right' then [low, low + depth]
+        else
+          mid = (low + high) / 2.0
+          [mid - depth / 2.0, mid + depth / 2.0]
+        end
+      end
+
+      # Build a slab mesh with boundary faces on each void, including holes
+      # touching an outer edge. Subtraction happens in the slab local axes.
+      def self.slab_mesh(entities, data)
+        holes = data.fetch('cutouts', [])
+        if holes.empty?
+          box(entities, 0.0, data['width'].to_f, 0.0, data['depth'].to_f,
+              -data['thickness'].to_f, 0.0)
+          return
+        end
+        _xs, _ys, cells = Core.slab_cells(data['width'], data['depth'], holes)
+        raise 'Stair opening covers entire slab footprint' if cells.empty?
+        t = data['thickness'].to_f
+        cells.each do |(i,j), (x0,x1,y0,y1)|
+          quad(entities, [[x0,y0,0],[x1,y0,0],[x1,y1,0],[x0,y1,0]], [0,0,1])
+          quad(entities, [[x0,y1,-t],[x1,y1,-t],[x1,y0,-t],[x0,y0,-t]], [0,0,-1])
+          unless cells.key?([i-1,j])
+            quad(entities, [[x0,y0,-t],[x0,y0,0],[x0,y1,0],[x0,y1,-t]], [-1,0,0])
+          end
+          unless cells.key?([i+1,j])
+            quad(entities, [[x1,y1,-t],[x1,y1,0],[x1,y0,0],[x1,y0,-t]], [1,0,0])
+          end
+          unless cells.key?([i,j-1])
+            quad(entities, [[x1,y0,-t],[x1,y0,0],[x0,y0,0],[x0,y0,-t]], [0,-1,0])
+          end
+          unless cells.key?([i,j+1])
+            quad(entities, [[x0,y1,-t],[x0,y1,0],[x1,y1,0],[x1,y1,-t]], [0,1,0])
+          end
+        end
+      end
+
       # Render the plan leaf and dashed swing arc independently of the
       # elevation marker. Elevation marker uses a wedge, not a single slash:
       # the point identifies the hinge or handle edge, configurable per opening.
@@ -155,7 +205,17 @@ module SSDigitalLab
         hinge_left = opening.fetch('hinge', 'left') != 'right'
         swing_sign = opening.fetch('swing', 'in') == 'out' ? -1.0 : 1.0
         label = (ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name'] || 'Unknown'
-        if opening['kind'] == 'door'
+        if opening['kind'] == 'sliding_door'
+          plan, dashed = symbol_group(child, wall, opening, model, 'plan')
+          y0,y1 = frame_bounds(wall,opening)
+          count = [[opening.fetch('panels',2).to_i,2].max,4].min
+          count.times do |i|
+            a=x+width*i/count; b=x+width*(i+1)/count
+            forward=(opening.fetch('slide_direction','left')=='left')
+            cy=(y0+y1)/2.0+((i.even? == forward) ? -12.0 : 12.0)
+            symbol_edge(plan,dashed,[a,cy,20],[b,cy,20])
+          end
+        elsif opening['kind'] == 'door'
           plan, dashed = symbol_group(child, wall, opening, model, 'plan')
           hinge = hinge_left ? x : x + width
           y = (low + high) / 2.0
@@ -188,11 +248,20 @@ module SSDigitalLab
         elev, dashed = symbol_group(child, wall, opening, model, 'elevation')
         # Project the symbolic vee directly onto the visible glazing / door leaf.
         # Never offset the symbol in front of the outer frame or into free space.
-        if opening['kind'] == 'window'
+        if opening['kind'] == 'sliding_door'
+          count = [[opening.fetch('panels', 2).to_i, 2].max, 4].min
+          outer = [opening.fetch('outer_frame',45.0).to_f,width/6.0,height/6.0].min
+          y0,y1=frame_bounds(wall,opening)
+          mid_y = (y0+y1)/2.0
+          (1...count).each do |i|
+            px=x+width*i/count
+            symbol_edge(elev,dashed,[px,mid_y+25,sill+outer],[px,mid_y+25,sill+height-outer])
+          end
+        elsif opening['kind'] == 'window'
           glass = opening.fetch('glass_thickness', 3.0).to_f
           panes = window_glass_bays(opening)
           marker = opening.fetch('marker', 'hinge')
-          y = (low + high) / 2.0 + glass / 2.0 + 0.55
+          y = frame_bounds(wall,opening).sum / 2.0 + glass / 2.0 + 0.55
           panes.each_with_index do |(left, right, min_z, max_z), index|
             # Two casements hinge at the outer jambs; each marker stays inside
             # its own glass pane and is offset just 0.55 mm off the surface.
@@ -207,7 +276,7 @@ module SSDigitalLab
           outer = opening.fetch('outer_frame', 45.0).to_f
           left, right = x + outer, x + width - outer
           min_z, max_z = sill + 8.0, sill + height - outer
-          y = (low + high) / 2.0 + 20.5
+          y = frame_bounds(wall,opening).sum / 2.0 + 20.5
           marker = opening.fetch('marker', 'hinge')
           point_left = marker == 'hinge' ? hinge_left : !hinge_left
           point_x, far_x = point_left ? [left, right] : [right, left]
@@ -234,9 +303,8 @@ module SSDigitalLab
                  width / 6.0, height / 6.0].min
         sash = [opening.fetch('inner_frame', 30.0).to_f, width / 12.0, height / 12.0].min
         glass = opening.fetch('glass_thickness', 3.0).to_f
-        mid_y = (low + high) / 2.0
-        frame_depth = [high - low, 65.0].min
-        y0, y1 = mid_y - frame_depth / 2.0, mid_y + frame_depth / 2.0
+        y0, y1 = frame_bounds(wall, opening)
+        mid_y = (y0 + y1) / 2.0
         frame_group = child.entities.add_group
         frame_group.name = 'Outer frame'
         frame_group.material = material(model, 'frame')
@@ -248,7 +316,38 @@ module SSDigitalLab
             z, z + outer) if kind == 'window'
         inner_l, inner_r = x + outer, x + width - outer
         inner_b, inner_t = z + (kind == 'window' ? outer : 8.0), z + height - outer
-        if kind == 'door'
+        if kind == 'sliding_door'
+          count = [[opening.fetch('panels', 2).to_i, 2].max, 4].min
+          pane_width = (inner_r - inner_l) / count
+          count.times do |index|
+            xl = inner_l + index*pane_width
+            xr = xl + pane_width
+            next if xr-xl < 2*sash+5.0 || inner_t-inner_b < 2*sash+5.0
+            track = child.entities.add_group
+            track.name = "Sliding panel #{index+1} of #{count}"
+            track.material = material(model, 'frame')
+            # Alternate panels across two parallel sliding tracks.
+            forward=(opening.fetch('slide_direction','left')=='left')
+            cy = mid_y + ((index.even? == forward) ? -14.0 : 14.0)
+            [[xl,xl+sash,inner_b,inner_t],[xr-sash,xr,inner_b,inner_t],
+             [xl+sash,xr-sash,inner_b,inner_b+sash],
+             [xl+sash,xr-sash,inner_t-sash,inner_t]].each do |a,b,c,d|
+              box(track.entities,a,b,cy-10,cy+10,c,d)
+            end
+            glass_group = track.entities.add_group
+            glass_group.name = 'Sliding glazing'
+            glass_group.material = material(model, 'glass')
+            box(glass_group.entities,xl+sash,xr-sash,cy-glass/2.0,cy+glass/2.0,
+                inner_b+sash,inner_t-sash)
+          end
+          # Parallel floor/head tracks make the sliding action legible in plan.
+          rail = child.entities.add_group
+          rail.name='Sliding door tracks'
+          rail.material=material(model,'frame')
+          [-14.0,14.0].each do |shift|
+            box(rail.entities,inner_l,inner_r,mid_y+shift-7,mid_y+shift+7,z,z+10)
+          end
+        elsif kind == 'door'
           if inner_r > inner_l && inner_t > inner_b
             panel = child.entities.add_group
             panel.name = 'Door leaf'
@@ -497,8 +596,7 @@ module SSDigitalLab
           wall_data = data.merge('_entities' => group.entities)
           data.fetch('openings', []).each { |o| opening_assembly(wall_data, o, model) }
         when 'slab'
-          box(group.entities, 0.0, data['width'].to_f, 0.0, data['depth'].to_f,
-              -data['thickness'].to_f, 0.0)
+          slab_mesh(group.entities, data)
         when 'footing'
           box(group.entities, 0.0, data['width'].to_f, 0.0, data['depth'].to_f,
               -data['thickness'].to_f, 0.0)

@@ -5,15 +5,17 @@ require 'csv'
 require 'securerandom'
 require_relative 'core'
 require_relative 'junctions'
+require_relative 'wall_graph'
 require_relative 'geometry'
 require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'tools'
+require_relative 'connected_move'
 
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.5.1'
+    VERSION = '0.7.0'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -76,13 +78,13 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels auto_repair_scale wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style stair_structure stair_handrail].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_alignment beam_alignment column_alignment roof_type roof_infill stair_style stair_structure stair_handrail auto_repair_scale].include?(key)
+        next if %w[rates wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       validated = Core.settings(settings.merge(patch))
@@ -199,6 +201,7 @@ module SSDigitalLab
           next unless d['level_id'] == id
           g.layer = model.layers[tag_for(d)] || model.layers.add(tag_for(d))
         end
+        sync_stair_slab_openings
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -276,7 +279,7 @@ module SSDigitalLab
         when 'wall'
           data.merge!('name' => 'Wall', 'length' => length,
                       'height' => s['wall_height'], 'thickness' => s['wall_thickness'],
-                      'alignment' => s['wall_alignment'], 'openings' => [])
+                      'alignment' => s['wall_alignment'], 'exterior_side' => s['wall_exterior_side'], 'openings' => [])
         when 'beam'
           data.merge!('name' => 'Beam', 'length' => length,
                       'width' => s['beam_width'], 'depth' => s['beam_depth'],
@@ -290,7 +293,8 @@ module SSDigitalLab
                       'structure' => s['stair_structure'], 'waist' => s['stair_waist'],
                       'handrail' => s['stair_handrail'], 'rail_height' => s['stair_rail_height'],
                       'rail_diameter' => s['stair_rail_diameter'], 'post_spacing' => s['stair_post_spacing'],
-                      'max_riser' => s['stair_max_riser'], 'min_tread' => s['stair_min_tread'])
+                      'max_riser' => s['stair_max_riser'], 'min_tread' => s['stair_min_tread'],
+                      'cut_slab' => s['stair_cut_slab'], 'hole_clearance' => s['stair_hole_clearance'])
         end
       elsif %w[slab room roof footing].include?(kind)
         x0, x1 = [p1.x, p2.x].minmax
@@ -301,7 +305,10 @@ module SSDigitalLab
         transform = Geom::Transformation.new(Geom::Point3d.new(x0, y0, level['elevation'].mm))
         data.merge!('name' => (kind == 'room' ? "Room #{elements.count { |_, d| d['kind'] == 'room' } + 1}" : 'Slab'),
                     'width' => width, 'depth' => depth)
-        data['thickness'] = s['slab_thickness'] if kind == 'slab'
+        if kind == 'slab'
+          data['thickness'] = s['slab_thickness']
+          data['cutouts'] = []
+        end
         data['thickness'] = s['footing_thickness'] if kind == 'footing'
         if kind == 'roof'
           data['thickness'] = s['roof_thickness']
@@ -348,9 +355,126 @@ module SSDigitalLab
         thickness: data['thickness'].to_f, alignment: data.fetch('alignment', 'left') }
     end
 
-    def rebuild_wall_junctions
+    # The graph is stored on the SKP model, not on transient entity IDs.
+    # JSON persistence is undoable as part of the caller's model operation.
+    def stored_wall_graph
+      WallGraph.new(safe_json(Sketchup.active_model.get_attribute(DICT, 'wall_graph_v1'), {}))
+    end
+
+    def wall_inventory
+      result = {}
+      elements.each do |group, data|
+        next unless data['kind'] == 'wall'
+        id = data.fetch('id')
+        raise "Duplicate BIM wall ID #{id[0, 8]}. Make wall IDs unique before connecting." if result.key?(id)
+        desc = wall_descriptor(group, data)
+        result[id] = WallGraph.wall(desc[:start], desc[:end],
+                                    level_id: data['level_id'],
+                                    thickness: data['thickness'],
+                                    height: data['height'],
+                                    openings: data.fetch('openings', []))
+      end
+      result
+    end
+
+    def save_wall_graph(graph)
+      data = graph.serialize
+      current = Sketchup.active_model.get_attribute(DICT, 'wall_graph_v1')
+      Sketchup.active_model.set_attribute(DICT, 'wall_graph_v1', data) if current != data
+    end
+
+    def reconcile_wall_graph(walls = nil)
+      walls ||= wall_inventory
+      graph = stored_wall_graph
+      added = settings.fetch('auto_wall_join', true) ? graph.detect(walls) : []
+      graph.remove_missing(walls)
+      save_wall_graph(graph)
+      added.each do |link|
+        Diagnostics.log('graph_link_created', { id: link['id'], type: link['type'],
+                                                  mode: link['mode'], a: link['a'], b: link['b'] })
+      end
+      graph
+    end
+
+    def wall_connections_payload(wall_id)
+      graph = stored_wall_graph
+      items = elements.each_with_object({}) { |(_, d), h| h[d['id']] = d }
+      graph.connections_for(wall_id).map do |r|
+        on_a = r['a'] == wall_id
+        mate = on_a ? r['b'] : r['a']
+        my_at = on_a ? r['a_end'] : (r['b_end'] || 'interior')
+        { 'id' => r['id'], 'mode' => r['mode'], 'type' => r['type'],
+          'at' => my_at || 'interior', 'other_id' => mate,
+          'other_name' => items.fetch(mate, {}).fetch('name', mate[0, 8]) }
+      end
+    end
+
+    def edit_wall_connection(join_id, mode)
+      model = Sketchup.active_model
+      graph = stored_wall_graph
+      inv = wall_inventory
+      model.start_operation('ArchiBIM: Change wall connection', true)
+      begin
+        graph.set_mode(join_id.to_s, mode.to_s, inv)
+        save_wall_graph(graph)
+        rebuild_wall_junctions(reconcile: false)
+        model.commit_operation
+        Diagnostics.log('graph_connection_mode', { id: join_id, mode: mode })
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      refresh_panel
+    end
+
+    def unlink_entire_wall
+      wall = selected
+      data = data_for(wall)
+      raise 'Select a wall first' unless data && data['kind'] == 'wall'
+      model = Sketchup.active_model
+      model.start_operation('ArchiBIM: Unlink entire wall', true)
+      begin
+        graph = stored_wall_graph
+        graph.unlink_wall(data['id'])
+        save_wall_graph(graph)
+        rebuild_wall_junctions(reconcile: false)
+        model.commit_operation
+        Diagnostics.log('graph_unlink_wall', { id: data['id'] })
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      refresh_panel
+    end
+
+    def reconnect_wall
+      group = selected
+      data = data_for(group)
+      raise 'Select a wall first' unless data && data['kind'] == 'wall'
+      model = Sketchup.active_model
+      model.start_operation('ArchiBIM: Reconnect nearby walls', true)
+      begin
+        graph = stored_wall_graph
+        walls = wall_inventory
+        graph.reconnect_nearby(walls, data['id'])
+        save_wall_graph(graph)
+        rebuild_wall_junctions(reconcile: false)
+        model.commit_operation
+        Diagnostics.log('graph_reconnect', { id: data['id'] })
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      refresh_panel
+    end
+
+    def rebuild_wall_junctions(reconcile: true)
       walls = elements.select { |_, data| data['kind'] == 'wall' }
-      caps = Junctions.calculate(walls.map { |g, data| wall_descriptor(g, data) })
+      graph = reconcile ? reconcile_wall_graph : stored_wall_graph
+      caps = Junctions.calculate(walls.map { |g, data| wall_descriptor(g, data) },
+                                 allow_join: lambda do |w, at, v, mate_at|
+                                   graph.allows_geometry?(w[:id], at, v[:id], mate_at)
+                                 end)
       model = Sketchup.active_model
       walls.each do |g, data|
         new_joins = caps.fetch(data['id'], {})
@@ -358,6 +482,58 @@ module SSDigitalLab
         updated = data.merge('joins' => new_joins)
         Geometry.build(g, updated, model)
       end
+    end
+
+    # Preview calculation never mutates the model (or any BIM attributes).
+    def connected_wall_preview(wall_id, dx, dy)
+      graph = stored_wall_graph
+      graph.move_plan(wall_inventory, wall_id, dx: dx, dy: dy)
+    end
+
+    def move_connected_wall(wall_id, dx, dy)
+      inv = wall_inventory
+      graph = stored_wall_graph
+      plan = graph.move_plan(inv, wall_id, dx: dx, dy: dy)
+      groups = elements.select { |_, data| data['kind'] == 'wall' }.to_h do |g, d|
+        [d['id'], [g, d]]
+      end
+      operations = plan.fetch('changed').map do |id|
+        group, old = groups.fetch(id)
+        if Repair.changed_scale?(group.transformation)
+          raise 'Wall has a scaled transform. Use Repair after Scale before connected Move.'
+        end
+        new_wall = plan.fetch('walls').fetch(id)
+        updated = JSON.parse(JSON.generate(old))
+        updated['length'] = new_wall['length']
+        updated['openings'] = new_wall.fetch('openings', old.fetch('openings', []))
+        updated.delete('joins')
+        validate_data(updated)
+        a = new_wall['start']; b = new_wall['end']
+        direction = Geom::Vector3d.new((b[0]-a[0]).mm, (b[1]-a[1]).mm, 0)
+        direction.normalize!
+        perpendicular = Z_AXIS.cross(direction)
+        z = group.transformation.origin.z
+        tr = Geom::Transformation.axes(Geom::Point3d.new(a[0].mm, a[1].mm, z),
+                                       direction, perpendicular, Z_AXIS)
+        [group, updated, tr]
+      end
+      model = Sketchup.active_model
+      model.start_operation('ArchiBIM: Move connected walls', true)
+      begin
+        operations.each do |group, data, transformation|
+          group.transformation = transformation
+          Geometry.build(group, data, model)
+        end
+        rebuild_wall_junctions(reconcile: false)
+        model.commit_operation
+        Diagnostics.log('connected_move_commit', { id: wall_id, dx_mm: dx, dy_mm: dy,
+                                                   walls_changed: plan.fetch('changed') })
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      refresh_panel
+      plan.fetch('changed')
     end
 
     # Nearby reference-line snapping, not just surface corner inference.
@@ -395,7 +571,110 @@ module SSDigitalLab
       Math.hypot(projected.x - x, projected.y - y) <= 13.0 ? best : point
     end
 
+    # Four independent native BIM wall objects plus an optional room area zone.
+    # The drawn rectangle defines OUTER wall faces (CCW perimeter, interior to left).
+    def create_room_walls(p1, p2)
+      x0,x1=[p1.x,p2.x].minmax; y0,y1=[p1.y,p2.y].minmax
+      w=(x1-x0).to_mm; d=(y1-y0).to_mm
+      t=settings['wall_thickness'].to_f
+      raise 'Room must be larger than twice wall thickness' if [w,d].min <= 2*t+50
+      z=current_level['elevation'].mm
+      points=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]].map { |x,y| Geom::Point3d.new(x,y,z) }
+      shell_id=SecureRandom.uuid
+      model=Sketchup.active_model
+      model.start_operation('ArchiBIM: Draw four room walls', true)
+      created=[]
+      begin
+        %w[South East North West].each_with_index do |label,i|
+          data,transform=entity_payload('wall',points[i],points[(i+1)%4])
+          data.merge!('name'=>"Room #{label} wall",'alignment'=>'left',
+                      'exterior_side'=>'right','room_group_id'=>shell_id)
+          validate_data(data)
+          created << create_element(data,transform)
+        end
+        if settings.fetch('room_add_zone',true)
+          a=Geom::Point3d.new(x0+t.mm,y0+t.mm,z)
+          b=Geom::Point3d.new(x1-t.mm,y1-t.mm,z)
+          data,transform=entity_payload('room',a,b)
+          data['room_group_id']=shell_id
+          data['name']="Room #{elements.count { |_,e| e['kind']=='room' }+1}"
+          created << create_element(data,transform)
+        end
+        rebuild_wall_junctions
+        model.commit_operation
+        Diagnostics.log('create_room_walls',{id:shell_id, walls:4, width:w, depth:d})
+        model.selection.clear
+        model.selection.add(created.first)
+        refresh_panel
+        created
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+    end
+
+    # Recompute associations from the actual stair and slab transforms, not
+    # from view pixels or the currently selected level. Maintains slab holes
+    # when either the stair or the upper-floor slab is edited or added later.
+    def sync_stair_slab_openings
+      entries=elements
+      stairs=entries.select { |_,d| d['kind']=='stair' && d.fetch('cut_slab',true) }
+      slabs=entries.select { |_,d| d['kind']=='slab' }
+      slabs.each do |slab,old|
+        inv=slab.transformation.inverse
+        slab_z=slab.transformation.origin.z
+        managed=[]
+        stairs.each do |stair,data|
+          top=stair.transformation.origin.z+data['rise'].to_f.mm
+          next if (top-slab_z).abs > 150.mm
+          margin=data.fetch('hole_clearance',50.0).to_f
+          run=data['run'].to_f; width=data['width'].to_f
+          width=2.0*width+data.fetch('gap',150.0).to_f if data.fetch('style','straight')=='u'
+          corners=[[-margin,-margin],[run+margin,-margin],
+                   [run+margin,width+margin],[-margin,width+margin]].map do |x,y|
+            Geom::Point3d.new(x.mm,y.mm,0).transform(stair.transformation).transform(inv)
+          end
+          xs=corners.map { |v| v.x.to_mm }; ys=corners.map { |v| v.y.to_mm }
+          x0,x1=xs.minmax; y0,y1=ys.minmax
+          next if x1 <= 0 || x0 >= old['width'].to_f || y1 <= 0 || y0 >= old['depth'].to_f
+          # Holes may intersect the slab edge, in which case the edge is open.
+          managed << {'id'=>"stair:#{data['id']}",'source_stair_id'=>data['id'],
+                      'x0'=>x0,'x1'=>x1,'y0'=>y0,'y1'=>y1}
+        end
+        retained=old.fetch('cutouts',[]).reject { |h| h.key?('source_stair_id') }
+        updated=retained+managed.sort_by { |h| h['source_stair_id'] }
+        next if old.fetch('cutouts',[]) == updated
+        data=old.merge('cutouts'=>updated)
+        Geometry.build(slab,data,Sketchup.active_model)
+        Diagnostics.log('stair_slab_opening_sync',{slab_id:data['id'],count:managed.length})
+      end
+    end
+
+    def reset_perspective_camera
+      model=Sketchup.active_model
+      view=model.active_view
+      groups=elements.map(&:first).select(&:valid?)
+      bounds=Geom::BoundingBox.new
+      groups.each { |g| bounds.add(g.bounds) }
+      bounds.add(model.bounds) if bounds.empty?
+      target=bounds.center
+      diameter=[bounds.diagonal,1.m].max
+      eye=Geom::Point3d.new(target.x-diameter,target.y-diameter,target.z+diameter*0.75)
+      camera=Sketchup::Camera.new(eye,target,Z_AXIS)
+      camera.perspective=true
+      camera.fov=35.0
+      view.camera=camera
+      # A cut plan scene may still have an active section plane. Hide its cut
+      # so perspective reset actually displays the complete building.
+      model.rendering_options['DisplaySectionCuts']=false
+      model.rendering_options['DisplaySectionPlanes']=false
+      groups.empty? ? view.zoom_extents : view.zoom(groups)
+      view.invalidate
+      Diagnostics.log('camera_reset',{perspective:true})
+    end
+
     def create_from_tool(kind, p1, p2)
+      return create_room_walls(p1, p2) if kind == 'room_walls'
       model = Sketchup.active_model
       data, transform = entity_payload(kind, p1, p2)
       validate_data(data)
@@ -403,6 +682,7 @@ module SSDigitalLab
       begin
         group = create_element(data, transform)
         rebuild_wall_junctions if kind == 'wall'
+        sync_stair_slab_openings if %w[slab stair].include?(kind)
         model.commit_operation
         Diagnostics.log('create_element', { kind: kind, id: data['id'], dimensions: data.slice('length', 'width', 'depth', 'height') })
         model.selection.clear
@@ -468,6 +748,7 @@ module SSDigitalLab
           raise 'Stair waist must be thinner than stair total rise' if data.fetch('waist', 150.0).to_f >= data['rise'].to_f
         end
         raise 'Stair structure must be waist or open' unless %w[waist open].include?(data.fetch('structure', 'waist'))
+        Core.number(data.fetch('hole_clearance',50.0), 'stair hole clearance', min: 0, allow_zero: true)
         raise 'Stair rail side must be none, left, right or both' unless %w[none left right both].include?(data.fetch('handrail', 'both'))
         %w[rail_height rail_diameter post_spacing max_riser min_tread].each { |field| Core.number(data[field], field) if data.key?(field) }
         if data.fetch('style', 'straight') == 'u'
@@ -476,6 +757,7 @@ module SSDigitalLab
         end
       end
       if kind == 'wall'
+        raise 'Invalid exterior face' unless %w[left right].include?(data.fetch('exterior_side','right'))
         raise 'Wall alignment must be left, center or right' unless %w[left center right].include?(data.fetch('alignment', 'left'))
         raise 'Too many hosted openings (maximum 100)' if data.fetch('openings', []).size > 100
         Core.wall_cells(data['length'], data['height'], data.fetch('openings', []))
@@ -488,13 +770,13 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment roof_type infill infill_thickness style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment roof_type style structure handrail].include?(key)
+        if %w[name code notes level_id alignment exterior_side roof_type style structure handrail].include?(key)
           data[key] = value.to_s[0, 250]
-        elsif key == 'infill'
+        elsif %w[infill cut_slab].include?(key)
           data[key] = !!value
         elsif key == 'steps'
           data[key] = Core.number(value, 'steps', min: 0, max: 100).to_i
@@ -518,6 +800,7 @@ module SSDigitalLab
         Geometry.build(group, data, model)
         group.layer = ensure_tag(tag_for(data))
         rebuild_wall_junctions if data['kind'] == 'wall'
+        sync_stair_slab_openings if %w[slab stair].include?(data['kind']) || data['level_id'] != old['level_id']
         Diagnostics.log('update_element', { id: data['id'], kind: data['kind'], fields: changes.keys })
         model.commit_operation
       rescue StandardError
@@ -528,29 +811,37 @@ module SSDigitalLab
     end
 
     def place_opening(group, kind, click_x, fields = {})
-      raise 'Only doors and windows are supported' unless %w[door window].include?(kind)
+      raise 'Only hosted doors and windows are supported' unless %w[door window sliding_door].include?(kind)
       original = data_for(group)
       raise 'Openings must be hosted in an ArchiBIM wall' unless original && original['kind'] == 'wall'
       s = settings
       width = mm_from_user(fields.fetch('width', s["#{kind}_width"]), 'opening width')
       height = mm_from_user(fields.fetch('height', s["#{kind}_height"]), 'opening height')
-      sill = mm_from_user(fields.fetch('sill', kind == 'door' ? 0 : s['window_sill']), 'opening sill')
+      sill = mm_from_user(fields.fetch('sill', kind == 'window' ? s['window_sill'] : 0), 'opening sill')
       max_offset = original['length'].to_f - width
       raise 'Opening is wider than wall' if max_offset < 0
-      offset = [[click_x.to_f - width / 2.0, 0.0].max, max_offset].min
+      offset = Core.clamp_opening_offset(click_x, width, original['length'])
       if fields.key?('offset')
         offset = mm_from_user(fields['offset'], 'opening offset')
       end
       opening = { 'id' => SecureRandom.uuid, 'kind' => kind, 'offset' => offset,
                   'width' => width, 'height' => height, 'sill' => sill,
                   'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in'),
-                  'marker' => fields.fetch('marker', 'hinge') }
-      if kind == 'window'
+                  'marker' => fields.fetch('marker', 'hinge'),
+                  'mount' => fields.fetch('mount', s.fetch("#{kind}_mount", 'center')) }
+      if kind == 'sliding_door'
+        opening['panels']=s['sliding_door_panels']
+        opening['slide_direction']=fields.fetch('slide_direction',s['sliding_door_direction'])
+        opening['outer_frame']=45.0
+        opening['inner_frame']=30.0
+        opening['glass_thickness']=6.0
+      elsif kind == 'window'
         opening['panels'] = s['window_panels']
         opening['outer_frame'] = s['window_outer_frame']
         opening['inner_frame'] = s['window_inner_frame']
         opening['glass_thickness'] = s['window_glass_thickness']
       end
+      raise 'Invalid mounting' unless %w[center exterior interior].include?(opening['mount'])
       raise 'Invalid hinge' unless %w[left right].include?(opening['hinge'])
       raise 'Invalid swing direction' unless %w[in out].include?(opening['swing'])
       Core.opening_valid?(opening, original['length'], original['height'], original.fetch('openings', []))
@@ -571,8 +862,8 @@ module SSDigitalLab
       opening
     end
 
-    def patch_opening(id, patch)
-      group = selected
+    def patch_opening(id, patch, wall = nil)
+      group = wall || selected
       old = data_for(group)
       raise 'Select a wall first' unless old && old['kind'] == 'wall'
       data = JSON.parse(JSON.generate(old))
@@ -582,13 +873,15 @@ module SSDigitalLab
         next unless patch.key?(key)
         open[key] = mm_from_user(patch[key], key)
       end
-      %w[hinge swing marker].each { |k| open[k] = patch[k] if patch.key?(k) }
+      %w[hinge swing marker mount slide_direction].each { |k| open[k] = patch[k] if patch.key?(k) }
       %w[outer_frame inner_frame glass_thickness].each do |k|
-        open[k] = mm_from_user(patch[k], k) if patch.key?(k) && open['kind'] == 'window'
+        open[k] = mm_from_user(patch[k], k) if patch.key?(k) && %w[window sliding_door].include?(open['kind'])
       end
-      if patch.key?('panels') && open['kind'] == 'window'
-        open['panels'] = Core.number(patch['panels'], 'panels', min: 0, max: 4).to_i
+      if patch.key?('panels') && %w[window sliding_door].include?(open['kind'])
+        open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: 4, allow_zero: true).to_i
       end
+      raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
+      raise 'Invalid sliding direction' unless %w[left right].include?(open.fetch('slide_direction','left'))
       raise 'Marker must be hinge or handle' unless %w[hinge handle].include?(open.fetch('marker', 'hinge'))
       raise 'Invalid hinge' unless %w[left right].include?(open.fetch('hinge', 'left'))
       raise 'Invalid swing direction' unless %w[in out].include?(open.fetch('swing', 'in'))
@@ -605,6 +898,17 @@ module SSDigitalLab
         raise
       end
       refresh_panel
+    end
+
+    def move_opening_on_wall(wall, id, center_mm)
+      data=data_for(wall)
+      raise 'Select a host wall' unless data && data['kind']=='wall'
+      opening=data.fetch('openings',[]).find { |o| o['id']==id }
+      raise 'Opening no longer exists' unless opening
+      x=Core.clamp_opening_offset(center_mm,opening['width'],data['length'])
+      patch_opening(id,{'offset'=>x},wall)
+      Diagnostics.log('opening_drag',{id:id,wall_id:data['id'],offset_mm:x})
+      x
     end
 
     def remove_opening(id)
@@ -670,6 +974,7 @@ module SSDigitalLab
           Diagnostics.log('auto_scale_repair', { id: data['id'], factors: factors })
         end
         rebuild_wall_junctions if plans.any? { |_, d, _, _| d['kind'] == 'wall' }
+        sync_stair_slab_openings if plans.any? { |_,d,_,_| %w[slab stair].include?(d['kind']) }
         model.commit_operation
       rescue StandardError => e
         model.abort_operation
@@ -702,6 +1007,7 @@ module SSDigitalLab
           Diagnostics.log('rebuild', { id: data['id'], kind: data['kind'], mode: mode, previous_scale: scales })
         end
         rebuild_wall_junctions if plans.any? { |_, d, _, _| d['kind'] == 'wall' }
+        sync_stair_slab_openings if plans.any? { |_,d,_,_| %w[slab stair].include?(d['kind']) }
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -756,6 +1062,7 @@ module SSDigitalLab
           Geometry.build(group, data, model)
         end
         rebuild_wall_junctions
+        sync_stair_slab_openings
         model.commit_operation
       rescue StandardError
         model.abort_operation
@@ -959,6 +1266,7 @@ module SSDigitalLab
         'active_level' => current_level['id'], 'selected' => data,
         'report' => totals_report, 'model_title' => Sketchup.active_model.title.to_s,
         'length_labels' => length_labels, 'selected_area' => area,
+        'wall_connections' => (data && data['kind'] == 'wall' ? wall_connections_payload(data['id']) : []),
         'tags' => tags_payload,
         'line_styles' => Sketchup.active_model.line_styles.names }
 
@@ -999,15 +1307,39 @@ module SSDigitalLab
           Diagnostics.log('tool_started', { kind: type })
           if type == 'column'
             Sketchup.active_model.select_tool(ColumnTool.new)
-          elsif %w[door window].include?(type)
+          elsif %w[door window sliding_door].include?(type)
             Sketchup.active_model.select_tool(OpeningTool.new(type))
-          elsif %w[wall slab beam stair room roof footing].include?(type)
+          elsif %w[wall slab beam stair room room_walls roof footing].include?(type)
             Sketchup.active_model.select_tool(DrawTool.new(type))
           else
             raise 'Unknown drawing tool'
           end
         end
       end
+      dialog.add_action_callback('connected_move_tool') do |_ctx|
+        callback_safe do
+          wall = selected
+          data = data_for(wall)
+          raise 'Select an ArchiBIM wall before using Connected Move' unless data && data['kind'] == 'wall'
+          # Existing v0.6 models get links inferred explicitly on activation.
+          model = Sketchup.active_model
+          model.start_operation('ArchiBIM: Initialize wall connections', true)
+          begin
+            reconcile_wall_graph
+            model.commit_operation
+          rescue StandardError
+            model.abort_operation
+            raise
+          end
+          Sketchup.active_model.select_tool(ConnectedMoveTool.new(data['id']))
+        end
+      end
+      dialog.add_action_callback('connection_mode') { |_ctx, id, mode| callback_safe { edit_wall_connection(id, mode) } }
+      dialog.add_action_callback('unlink_entire_wall') { |_ctx| callback_safe { unlink_entire_wall } }
+      dialog.add_action_callback('reconnect_wall') { |_ctx| callback_safe { reconnect_wall } }
+      dialog.add_action_callback('move_opening_tool') { |_ctx, id| callback_safe { Sketchup.active_model.select_tool(OpeningMoveTool.new(id.to_s)) } }
+      dialog.add_action_callback('reset_camera') { |_ctx| callback_safe { reset_perspective_camera } }
+      dialog.add_action_callback('sync_stair_holes') { |_ctx| callback_safe { m=Sketchup.active_model; m.start_operation('ArchiBIM: Sync stair openings',true); begin; sync_stair_slab_openings; m.commit_operation; rescue StandardError; m.abort_operation; raise; end } }
       dialog.add_action_callback('set_tag') { |_ctx, name, visible, style| callback_safe { set_tag(name, visible, style) } }
       dialog.add_action_callback('rebuild') { |_ctx, scope, mode| callback_safe { rebuild_bim(scope, mode) } }
       dialog.add_action_callback('diagnostics') { |_ctx| callback_safe { export_diagnostics } }
@@ -1079,8 +1411,22 @@ module SSDigitalLab
       panel.large_icon = File.join(__dir__, 'ui', 'toolbar_48.png')
       tools = UI.menu('Extensions').add_submenu('ArchiBIM')
       tools.add_item(panel)
+      tools.add_item('Move connected wall') do
+        callback_safe do
+          g=selected; d=data_for(g)
+          raise 'Select an ArchiBIM wall first' unless d && d['kind']=='wall'
+          m=Sketchup.active_model
+          m.start_operation('ArchiBIM: Initialize wall connections', true)
+          begin; reconcile_wall_graph; m.commit_operation; rescue StandardError; m.abort_operation; raise; end
+          m.select_tool(ConnectedMoveTool.new(d['id']))
+        end
+      end
       tools.add_item('Draw wall') { Sketchup.active_model.select_tool(DrawTool.new('wall')) }
       tools.add_item('Insert door') { Sketchup.active_model.select_tool(OpeningTool.new('door')) }
+      tools.add_item('Insert sliding door') { Sketchup.active_model.select_tool(OpeningTool.new('sliding_door')) }
+      tools.add_item('Move hosted opening') { Sketchup.active_model.select_tool(OpeningMoveTool.new) }
+      tools.add_item('Draw four room walls') { Sketchup.active_model.select_tool(DrawTool.new('room_walls')) }
+      tools.add_item('Fit house in perspective') { reset_perspective_camera }
       tools.add_item('Insert window') { Sketchup.active_model.select_tool(OpeningTool.new('window')) }
       tools.add_item('Draw slab') { Sketchup.active_model.select_tool(DrawTool.new('slab')) }
       tools.add_item('Place column') { Sketchup.active_model.select_tool(ColumnTool.new) }
@@ -1088,6 +1434,7 @@ module SSDigitalLab
       tools.add_item('Rebuild selected from saved dimensions') { callback_safe { rebuild_bim('selected', 'saved') } }
       tools.add_item('Repair selected after native Scale') { callback_safe { rebuild_bim('selected', 'adopt_scale') } }
       tools.add_item('Export testing diagnostics') { callback_safe { export_diagnostics } }
+      tools.add_item('Recalculate stair-to-slab cutouts') { callback_safe { m=Sketchup.active_model; m.start_operation('ArchiBIM: Reconcile stair openings',true); begin; sync_stair_slab_openings; m.commit_operation; rescue StandardError; m.abort_operation; raise; end } }
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
       tools.add_item('Export schedule to CSV') { callback_safe { export_csv } }

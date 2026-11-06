@@ -4,7 +4,7 @@ module SSDigitalLab
   module ArchiBIM
     # Native-like rectangle and wall drawing with the SketchUp Measurements box.
     class DrawTool
-      FOOTPRINTS = %w[slab room roof footing].freeze
+      FOOTPRINTS = %w[slab room room_walls roof footing].freeze
       LINES = %w[wall beam stair].freeze
 
       def initialize(kind)
@@ -25,6 +25,7 @@ module SSDigitalLab
         @input.pick(view, x, y)
         @hover = @input.valid? ? @input.position : nil
         @hover = ArchiBIM.snap_wall_point(@hover, view, x, y) if @hover && @kind == 'wall'
+        @hover = ArchiBIM.workplane_pick(view,x,y) if @kind == 'room_walls' && ArchiBIM.workplane_pick(view,x,y)
         view.tooltip = @input.tooltip if @input.valid?
         view.invalidate
       end
@@ -324,7 +325,8 @@ module SSDigitalLab
         if @wall && @hit
           d = ArchiBIM.data_for(@wall); s = ArchiBIM.settings
           width = s["#{@kind}_width"]
-          sill = @kind == 'door' ? 0.0 : s['window_sill']
+          @hit = Core.clamp_opening_offset(@hit, width, d['length']) + width/2.0
+          sill = @kind == 'window' ? s['window_sill'] : 0.0
           opening = { 'kind' => @kind, 'offset' => @hit - width / 2.0,
                       'width' => width, 'height' => s["#{@kind}_height"], 'sill' => sill }
           begin
@@ -370,7 +372,7 @@ module SSDigitalLab
         return unless d
         s = ArchiBIM.settings
         width = s["#{@kind}_width"]; height = s["#{@kind}_height"]
-        sill = @kind == 'door' ? 0.0 : s['window_sill']
+        sill = @kind == 'window' ? s['window_sill'] : 0.0
         low, high = Junctions.side_offsets(d['thickness'], d['alignment'])
         x0 = @hit - width / 2.0; x1 = x0 + width
         # Preview on cut plane and on wall elevation so the cursor works from
@@ -387,6 +389,125 @@ module SSDigitalLab
           view.draw(GL_LINE_LOOP, poly.map { |v| Geometry.point(*v).transform(t) })
         end
         view.line_stipple = ''
+      end
+    end
+
+    # Pick an existing nested hosted opening, then move it by mouse while the
+    # wall and all other BIM groups stay put. A preset opening ID from the
+    # inspector activates direct repositioning on its already-selected wall.
+    class OpeningMoveTool
+      def initialize(opening_id = nil)
+        @id=opening_id
+        @wall=nil
+        @opening=nil
+        @offset=nil
+        @valid=false
+      end
+
+      def activate
+        wall=ArchiBIM.selected
+        if @id && wall
+          d=ArchiBIM.data_for(wall)
+          if d && d['kind']=='wall'
+            @opening=d.fetch('openings',[]).find { |o| o['id']==@id }
+            @wall=wall if @opening
+          end
+        end
+        Sketchup.status_text=@wall ? 'ArchiBIM: hover to move opening along wall; click to confirm. Esc cancels.' :
+          'ArchiBIM: click a hosted door/window to select it, then move cursor and click its new position.'
+      end
+
+      def deactivate(view); view.invalidate if view; end
+
+      def pick_existing(view,x,y)
+        picker=view.pick_helper
+        picker.do_pick(x,y)
+        (0...picker.count).each do |index|
+          path=picker.path_at(index)
+          next unless path
+          host=path.find { |e| e.is_a?(Sketchup::Group) && ArchiBIM.data_for(e)&.fetch('kind',nil)=='wall' }
+          next unless host
+          child=path.find { |e| e.is_a?(Sketchup::Group) && e.get_attribute(ArchiBIM::DICT,'hosted')==true && e.get_attribute(ArchiBIM::DICT,'data') }
+          next unless child
+          detail=ArchiBIM.safe_json(child.get_attribute(ArchiBIM::DICT,'data'),nil)
+          next unless detail && %w[door window sliding_door].include?(detail['kind'])
+          opening=ArchiBIM.data_for(host).fetch('openings',[]).find { |v| v['id']==detail['id'] }
+          return [host,opening] if opening
+        end
+        nil
+      end
+
+      def onMouseMove(_flags,x,y,view)
+        return unless @wall && @opening
+        # Reuse the same wall-plane intersection as insertion, so perspective,
+        # top and elevation views all provide an accurate horizontal offset.
+        center=OpeningTool.new(@opening['kind']).cursor_position(view,x,y,@wall)
+        d=ArchiBIM.data_for(@wall)
+        @offset=Core.clamp_opening_offset(center,@opening['width'],d['length'])
+        candidate=@opening.merge('offset'=>@offset)
+        @valid=false
+        begin
+          Core.opening_valid?(candidate,d['length'],d['height'],d['openings'])
+          @valid=true
+        rescue ArgumentError
+          @valid=false
+        end
+        left=@offset
+        right=d['length'].to_f-@offset-@opening['width'].to_f
+        view.tooltip="Move #{@opening['kind'].tr('_',' ')} | left #{ArchiBIM.fmt_mm(left)} | right #{ArchiBIM.fmt_mm(right)} | click to confirm"
+        view.invalidate
+      rescue StandardError
+        @valid=false
+      end
+
+      def onLButtonDown(_flags,x,y,view)
+        unless @wall && @opening
+          picked=pick_existing(view,x,y)
+          if picked
+            @wall,@opening=picked
+            @id=@opening['id']
+            Sketchup.active_model.selection.clear
+            Sketchup.active_model.selection.add(@wall)
+            Sketchup.status_text='Opening selected. Hover to reposition, click to confirm.'
+          else
+            Sketchup.status_text='Click directly on a hosted door/window frame or leaf.'
+          end
+        else
+          onMouseMove(0,x,y,view)
+          return unless @valid
+          ArchiBIM.move_opening_on_wall(@wall,@id,@offset+@opening['width'].to_f/2.0)
+          Sketchup.status_text='Opening repositioned. Select another using the BIM Manager or Esc to exit.'
+          Sketchup.active_model.select_tool(nil)
+        end
+        view.invalidate
+      rescue StandardError => e
+        Diagnostics.error('move_opening_tool',e)
+        UI.messagebox("ArchiBIM: #{e.message}")
+      end
+
+      def onCancel(_reason,view)
+        @wall=@opening=nil
+        view.invalidate
+      end
+
+      def draw(view)
+        return unless @wall && @opening && @offset
+        d=ArchiBIM.data_for(@wall)
+        return unless d
+        width=@opening['width'].to_f; height=@opening['height'].to_f
+        sill=@opening['sill'].to_f; low,high=Junctions.side_offsets(d['thickness'],d['alignment'])
+        x0=@offset;x1=x0+width;t=@wall.transformation
+        plan=[[x0,low,1200],[x1,low,1200],[x1,high,1200],[x0,high,1200]]
+        face=[[x0,high+20,sill],[x1,high+20,sill],[x1,high+20,sill+height],[x0,high+20,sill+height]]
+        view.drawing_color=@valid ? Sketchup::Color.new(30,221,161) : Sketchup::Color.new(238,81,75)
+        view.line_width=3
+        view.line_stipple='-'
+        [plan,face].each { |pts| view.draw(GL_LINE_LOOP,pts.map { |xyz| Geometry.point(*xyz).transform(t) }) }
+        view.line_stipple=''
+        label=Geom::Point3d.new(x0,high+90,sill+height/2).transform(t)
+        right=d['length'].to_f-x1
+        view.draw_text(label,"#{ArchiBIM.fmt_mm(x0)}  |  #{ArchiBIM.fmt_mm(right)}",
+                       size:13,color:Sketchup::Color.new(15,135,135))
       end
     end
   end

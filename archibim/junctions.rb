@@ -36,7 +36,7 @@ module SSDigitalLab
       # Output {id => {'start'=>[left_x_shift,right_x_shift], 'end'=>[...]}}.
       # Miter cuts are applied to two walls with coincident ends; a branch ending on
       # another wall's interior receives a flat butt cut at the nearest face.
-      def calculate(walls)
+      def calculate(walls, allow_join: nil)
         result = {}
         walls.each { |w| result[w[:id]] = { 'start' => [0.0, 0.0], 'end' => [0.0, 0.0] } }
         walls.each do |w|
@@ -47,7 +47,10 @@ module SSDigitalLab
             candidates = walls.reject { |v| v[:id] == w[:id] || v[:level_id] != w[:level_id] }
             # Prefer an exact endpoint pair before checking interior tee junctions.
             endpoint_candidates = candidates.filter_map do |v|
-              mate_at = %w[start end].find { |which| dist(v[which.to_sym], p) <= ENDPOINT_TOLERANCE }
+              mate_at = %w[start end].find do |which|
+                dist(v[which.to_sym], p) <= ENDPOINT_TOLERANCE &&
+                  (!allow_join || allow_join.call(w, at, v, which))
+              end
               mate_at && [v, mate_at]
             end
             if endpoint_candidates.size == 1
@@ -58,6 +61,7 @@ module SSDigitalLab
             end
             next unless endpoint_candidates.empty?
             candidates.each do |host|
+              next if allow_join && !allow_join.call(w, at, host, nil)
               c = tee_cap(w, at, host)
               if c
                 result[w[:id]][at] = c

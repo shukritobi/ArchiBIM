@@ -1,34 +1,37 @@
-# ArchiBIM v0.5.1 | Geometry repair hotfix
+# ArchiBIM v0.5.1 | Repair + opening placement hotfix
 
-5 November 2026. Based on the SketchUp 2026 screenshots and ArchiBIM_Testing_Log(1).txt.
+5 November 2026 · hotfix for SketchUp 2026, following the user's `ArchiBIM_Testing_Log(1).txt` and screenshots.
 
-## Confirmed cause
+## Confirmed root cause
 
-Doors, windows, Properties updates and Scale repair all raise the same error:
-ArgumentError: Cannot convert argument to Geom::Vector3d (archibim/repair.rb:42).
+All three failed workflows (door/window insertion via the Properties callback, editing an element, and repairing a scaled group) had the exact same exception:
 
-In SketchUp, Vector3d#* is cross product, not multiplication by a scalar.
-The expression x * y.dot(x) therefore fails. We now orthogonalize with
-Geom::Vector3d.linear_combination(1.0, y, -projection, x).
+`ArgumentError: Cannot convert argument to Geom::Vector3d`, at `archibim/repair.rb:42` in `normalized_transform`.
 
-## Hotfix
+In SketchUp Ruby, `Geom::Vector3d#*` is a **cross product**, and `x * y.dot(x)` is not legal scalar multiplication. The former implementation used `y -= x * y.dot(x)` while orthogonalizing scaled and rotated BIM group transformations.
 
-- Recover unit, perpendicular local axes for normal, scaled and sheared BIM groups.
-- Preserve stored thickness, height, hosted opening dimensions during rebuild.
-- Reject collapsed and parallel transforms with a clear exception.
-- Fix the HTML manager's stale v0.4.0 footer to display v0.5.1.
-- No migration: existing ArchiBIM group metadata stays compatible.
-- Add tests with a SketchUp-compatible vector double that intentionally rejects Vector3d * Float.
+This version uses `Geom::Vector3d.linear_combination(1.0, y, -projection, x)` instead, preserving the intended Gram-Schmidt orthogonalization. The same method is called on *all* property updates and opening insertions, even when no scaling happened, which explains why seemingly unrelated tools failed together.
 
-41 tests and 131 assertions pass locally. Ruby and HTML-JS syntax passed.
-The source tests are not a replacement for live SketchUp geometry verification.
+## Improvements and tests
 
-## Test in SketchUp
+- Fix `Repair.normalized_transform` for unit, scaled, rotated, and mildly sheared BIM groups. Retains group origin and obtains unit, mutually perpendicular local axes.
+- Preserve parametric geometry on regeneration. Length/depth follow the saved or adopted footprint; wall thickness, wall height, and hosted window/door sizes stay fixed.
+- Reject collapsed/parallel transforms instead of silently producing invalid geometry.
+- Add a SketchUp-API-compatible `Geom` test double that deliberately throws the same error for `Vector3d * Float`, ensuring CI catches a recurrence of this specific mistake.
+- Fix stale BIM Manager footer so version shown there matches the loader and header.
+- Preserve all BIM model attributes and existing file format. No data migration is needed.
 
-1. Install new RBZ and fully restart SketchUp; check v0.5.1 badge and footer.
-2. Select a wall and edit thickness in Properties. Click Apply.
-3. Place a door and a window on the wall and verify the opening cutouts.
-4. Scale wall length 0.5 with native SketchUp Scale, release, confirm
-   thickness and height remain unchanged after the repair operation.
-5. Run Repair selected after Scale and Rebuild selected; both should work.
-6. Export the diagnostics log if any error still occurs.
+## Local validation
+
+41 Ruby tests / 131 assertions passing, with zero errors or failures. Ruby syntax and embedded HTML/JavaScript parsing passed. **Live SketchUp desktop interaction must still be verified by the user**.
+
+## Acceptance test
+
+1. Restart SketchUp after installing `ArchiBIM_latest.rbz`; header and footer should both say v0.5.1.
+2. Select one BIM wall, change its thickness and click Apply. The Properties panel must remain usable and no vector error should appear.
+3. Insert a door and a window on that wall. Both cutouts should regenerate, and the green ghost preview should become geometry.
+4. Select a wall, native Scale it to 0.5 along its length, and release the mouse. After automatic repair, wall thickness and height must remain unchanged while length adopts the scale.
+5. Select and run Diagnostics → Repair selected after Scale and Rebuild selected, checking that there are no `Geom::Vector3d` errors.
+6. Export the testing log if any step still fails.
+
+**Limitations:** Only rectangle wall/roof/solid shapes are in the current prototype. Heavy shears, transforms with collapsed axes and native geometric vertex edits are unsupported. The fixes are validated with API-compatible Ruby tests, not live SketchUp.
