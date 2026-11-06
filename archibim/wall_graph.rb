@@ -45,7 +45,7 @@ module SSDigitalLab
         raise ArgumentError, 'Invalid wall connection mode' unless MODES.include?(mode)
         record = find(id)
         raise ArgumentError, 'Wall connection not found' unless record
-        if mode != 'unlinked' && record['mode'] == 'unlinked'
+        if mode != 'unlinked'
           raise ArgumentError, 'Walls no longer touch; move them together before reconnecting' unless touching?(record, walls)
         end
         record['mode'] = mode
@@ -62,10 +62,39 @@ module SSDigitalLab
         @disabled_walls &= ids
       end
 
+      # How far a branch endpoint is from the real body of a host wall.
+      # A face-aligned end is valid even when the host baseline is offset
+      # by 75 mm or 150 mm. No automatic join across storeys or parallel walls.
+      def tee_contact(branch, at, host, tolerance: DEFAULT_TOLERANCE)
+        p = endpoint(branch, at)
+        dbranch = unit(sub(branch['end'], branch['start']))
+        dh = unit(sub(host['end'], host['start']))
+        return nil if cross(dbranch, dh).abs < 0.15
+        station, = projection(p, host['start'], host['end'])
+        setback = [host['thickness'].to_f * 0.25, 25.0].min
+        return nil if station <= setback || station >= length(host) - setback
+        normal = [-dh[1], dh[0]]
+        signed = dot(sub(p, host['start']), normal)
+        low, high = face_offsets(host)
+        gap = [low - signed, signed - high, 0.0].max
+        return nil if gap > tolerance
+        { 'station_mm' => station, 'signed_offset_mm' => signed,
+          'face_low_mm' => low, 'face_high_mm' => high, 'gap_mm' => gap }
+      end
+
+      def face_offsets(wall)
+        t = wall['thickness'].to_f
+        case wall.fetch('alignment', 'center').to_s
+        when 'right' then [-t, 0.0]
+        when 'left' then [0.0, t]
+        else [-t / 2.0, t / 2.0]
+        end
+      end
+
       # Detect only unambiguous endpoint/corner and branch-end T candidates.
       # Unlinked records remain as tombstones so edits cannot silently rejoin them.
       # No implicit snapping/translation or cross-level joins.
-      def detect(walls, tolerance: DEFAULT_TOLERANCE, default_corner: 'linked', default_tee: 'join_only')
+      def detect(walls, tolerance: DEFAULT_TOLERANCE, default_corner: 'linked', default_tee: 'linked')
         raise ArgumentError, 'Invalid tolerance' unless tolerance.to_f.between?(0.1, 100.0)
         remove_missing(walls)
         proposals = []
@@ -84,28 +113,30 @@ module SSDigitalLab
                 if separation <= tolerance
                   angle = cross(unit(sub(wall['end'], wall['start'])), unit(sub(other['end'], other['start']))).abs
                   next if angle < 0.15 # no ambiguous collinear merging yet
-                  candidates << [separation, 'corner', other_id, other_at, nil]
+                  candidates << [separation, 'corner', other_id, other_at, nil, nil]
                 end
               end
               next if pair_excluded?(id, at, other_id, nil)
-              station, separation = projection(p, other['start'], other['end'])
-              min_station = [other['thickness'].to_f, 50.0].max
-              if station > min_station && station < length(other) - min_station && separation <= tolerance
-                angle = cross(unit(sub(wall['end'], wall['start'])), unit(sub(other['end'], other['start']))).abs
-                next if angle < 0.15
-                candidates << [separation, 'tee', other_id, nil, station]
+              contact = tee_contact(wall, at, other, tolerance: tolerance)
+              if contact
+                # A real T contact includes either host face, not only its
+                # centre reference line. Never silently move the partition to
+                # the centre: the reference point must keep its intended face.
+                candidates << [contact['gap_mm'], 'tee', other_id, nil,
+                               contact['station_mm'], contact['signed_offset_mm']]
               end
             end
             candidates.sort_by!(&:first)
             next if candidates.empty?
             # A near-equal second candidate needs explicit disambiguation.
             next if candidates[1] && (candidates[1][0] - candidates[0][0]).abs < 0.5
-            separation, type, other_id, other_at, station = candidates.first
+            separation, type, other_id, other_at, station, face_offset = candidates.first
             next if type == 'corner' && ([id, at] <=> [other_id, other_at]) == 1
             proposals << { 'id' => SecureRandom.uuid, 'type' => type,
                            'mode' => type == 'corner' ? default_corner : default_tee,
                            'a' => id, 'a_end' => at, 'b' => other_id,
-                           'b_end' => other_at, 'station' => station }
+                           'b_end' => other_at, 'station' => station,
+                           'face_offset' => face_offset }
           end
         end
         added = []
@@ -122,16 +153,67 @@ module SSDigitalLab
         added
       end
 
+      # Explicit user action: reconnect a selected wall and promote its
+      # touching legacy T junctions to movement-linked. An explicit unlinked
+      # tombstone is only re-enabled when this action is selected.
       def reconnect_nearby(walls, wall_id)
+        raise ArgumentError, 'Selected wall not found' unless walls.key?(wall_id)
         @disabled_walls.delete(wall_id)
-        # Explicit operation re-enables this wall's disabled ends, then safely
-        # discovers only new/unambiguous junctions. Existing disjoint tombstones
-        # are retained as unlinked until walls meet.
+        restored = []
+        upgraded = []
         @records.each do |r|
-          next unless r['mode'] == 'unlinked' && (r['a'] == wall_id || r['b'] == wall_id)
-          r['mode'] = r['type'] == 'corner' ? 'linked' : 'join_only' if touching?(r, walls)
+          next unless r['a'] == wall_id || r['b'] == wall_id
+          if r['mode'] == 'unlinked' && touching?(r, walls)
+            r['mode'] = 'linked'
+            restored << r['id']
+          elsif r['type'] == 'tee' && r['mode'] == 'join_only' && touching?(r, walls)
+            r['mode'] = 'linked'
+            upgraded << r['id']
+          end
         end
-        detect(walls)
+        added = detect(walls)
+        { 'added' => added, 'restored' => restored, 'upgraded' => upgraded }
+      end
+
+      # Read-only junction audit for UI feedback and exported testing logs.
+      def audit(walls, tolerance: DEFAULT_TOLERANCE)
+        items = @records.map do |r|
+          a = walls[r['a']]; b = walls[r['b']]
+          details = { 'id' => r['id'], 'type' => r['type'], 'mode' => r['mode'],
+                      'a' => r['a'], 'a_end' => r['a_end'], 'b' => r['b'],
+                      'b_end' => r['b_end'], 'touching' => touching?(r, walls, tolerance: tolerance) }
+          if a && b && r['type'] == 'tee'
+            contact = tee_contact(a, r['a_end'], b, tolerance: tolerance)
+            details['contact'] = contact
+            details['stored_station_mm'] = r['station']
+            details['stored_face_offset_mm'] = r['face_offset']
+          elsif a && b && r['type'] == 'corner'
+            details['endpoint_distance_mm'] = dist(endpoint(a, r['a_end']), endpoint(b, r['b_end']))
+          end
+          details
+        end
+        unmatched = []
+        walls.each do |id, w|
+          ENDS.each do |at|
+            next if endpoint_is_occupied?(id, at)
+            nearest = walls.filter_map do |other_id, host|
+              next if id == other_id || host['level_id'] != w['level_id']
+              contact = tee_contact(w, at, host, tolerance: [tolerance * 20, 250.0].max)
+              contact && { 'host_id' => other_id, 'gap_mm' => contact['gap_mm'],
+                           'station_mm' => contact['station_mm'],
+                           'status' => contact['gap_mm'] <= tolerance ? 'touching_unlinked' : 'gap_too_large' }
+            end.min_by { |entry| entry['gap_mm'] }
+            unmatched << { 'wall_id' => id, 'end' => at,
+                           'disabled' => @disabled_walls.include?(id),
+                           'nearest_tee' => nearest } if nearest
+          end
+        end
+        { 'wall_count' => walls.length, 'connection_count' => items.length,
+          'linked_count' => items.count { |r| r['mode'] == 'linked' },
+          'join_only_count' => items.count { |r| r['mode'] == 'join_only' },
+          'broken_count' => items.count { |r| r['mode'] == 'linked' && !r['touching'] },
+          'disabled_walls' => @disabled_walls.dup,
+          'connections' => items, 'nearby_unconnected' => unmatched.first(120) }
       end
 
       # Do not convert graph edges to mesh joins unless permission is active.
@@ -172,7 +254,10 @@ module SSDigitalLab
           mover_at = r['a'] == id ? r['a_end'] : r['b_end']
           if r['type'] == 'tee'
             if r['a'] == id
-              raise ArgumentError, 'Moving a linked T-branch requires unlinking or a separate slide operation'
+              # A branch may slide along its host, but may not move away
+              # from that host surface or beyond the host endpoints.
+              next if touching?(r, updated)
+              raise ArgumentError, 'Branch would leave its T-junction host; unlink before moving away'
             end
             other_at = r['a_end']
             mover_at = nil
@@ -225,15 +310,14 @@ module SSDigitalLab
         if r['type'] == 'corner'
           dist(endpoint(a, r['a_end']), endpoint(b, r['b_end'])) <= tolerance
         else
-          station, separation = projection(endpoint(a, r['a_end']), b['start'], b['end'])
-          station > 0 && station < length(b) && separation <= tolerance
+          !!tee_contact(a, r['a_end'], b, tolerance: tolerance)
         end
       end
 
-      def self.wall(start_point, end_point, level_id: 'GF', thickness: 150.0, height: 3000.0, openings: [])
+      def self.wall(start_point, end_point, level_id: 'GF', thickness: 150.0, height: 3000.0, openings: [], alignment: 'center')
         { 'start' => start_point.map(&:to_f), 'end' => end_point.map(&:to_f),
           'level_id' => level_id, 'thickness' => thickness.to_f,
-          'height' => height.to_f, 'openings' => deep_copy(openings) }
+          'height' => height.to_f, 'alignment' => alignment, 'openings' => deep_copy(openings) }
       end
 
       def self.deep_copy(value); JSON.parse(JSON.generate(value)); end

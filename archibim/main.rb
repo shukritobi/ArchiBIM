@@ -15,7 +15,7 @@ require_relative 'connected_move'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.7.0'
+    VERSION = '0.7.1'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -372,9 +372,17 @@ module SSDigitalLab
                                     level_id: data['level_id'],
                                     thickness: data['thickness'],
                                     height: data['height'],
+                                    alignment: data.fetch('alignment', 'left'),
                                     openings: data.fetch('openings', []))
       end
       result
+    end
+
+    def graph_feedback(message, report = nil)
+      @graph_feedback = { 'message' => message.to_s, 'report' => report,
+                          'at' => Time.now.strftime('%H:%M:%S') }
+      Sketchup.status_text = "ArchiBIM: #{message}"
+      Diagnostics.log('graph_ui_feedback', @graph_feedback)
     end
 
     def save_wall_graph(graph)
@@ -391,21 +399,31 @@ module SSDigitalLab
       save_wall_graph(graph)
       added.each do |link|
         Diagnostics.log('graph_link_created', { id: link['id'], type: link['type'],
-                                                  mode: link['mode'], a: link['a'], b: link['b'] })
+              mode: link['mode'], a: link['a'], a_end: link['a_end'],
+              b: link['b'], b_end: link['b_end'],
+              face_offset_mm: link['face_offset'], station_mm: link['station'] })
       end
+      audit = graph.audit(walls)
+      Diagnostics.log('graph_auto_scan', { added: added.length, walls: walls.length,
+          total_links: graph.records.length, linked: audit['linked_count'],
+          join_only: audit['join_only_count'], broken: audit['broken_count'],
+          near_unconnected: audit['nearby_unconnected'].first(10) })
       graph
     end
 
     def wall_connections_payload(wall_id)
       graph = stored_wall_graph
       items = elements.each_with_object({}) { |(_, d), h| h[d['id']] = d }
+      inventory = wall_inventory
       graph.connections_for(wall_id).map do |r|
         on_a = r['a'] == wall_id
         mate = on_a ? r['b'] : r['a']
         my_at = on_a ? r['a_end'] : (r['b_end'] || 'interior')
         { 'id' => r['id'], 'mode' => r['mode'], 'type' => r['type'],
           'at' => my_at || 'interior', 'other_id' => mate,
-          'other_name' => items.fetch(mate, {}).fetch('name', mate[0, 8]) }
+          'other_name' => items.fetch(mate, {}).fetch('name', mate[0, 8]),
+          'touching' => graph.touching?(r, inventory),
+          'station_mm' => r['station'], 'face_offset_mm' => r['face_offset'] }
       end
     end
 
@@ -456,11 +474,67 @@ module SSDigitalLab
       begin
         graph = stored_wall_graph
         walls = wall_inventory
-        graph.reconnect_nearby(walls, data['id'])
+        before = graph.connections_for(data['id']).length
+        result = graph.reconnect_nearby(walls, data['id'])
+        report = graph.audit(walls)
         save_wall_graph(graph)
         rebuild_wall_junctions(reconcile: false)
         model.commit_operation
-        Diagnostics.log('graph_reconnect', { id: data['id'] })
+        detail = { wall_id: data['id'], before: before,
+                   added: result['added'].map { |r| r['id'] },
+                   upgraded: result['upgraded'], restored: result['restored'],
+                   wall_connections: graph.connections_for(data['id']).size,
+                   broken_links: report['broken_count'], scan: report }
+        Diagnostics.log('graph_manual_scan', detail)
+        if result.values.all?(&:empty?)
+          graph_feedback("No new links. This wall has #{graph.connections_for(data['id']).size} recorded junction(s). See Diagnostics for nearby candidates.",
+                         { 'added' => 0, 'upgraded' => 0, 'restored' => 0,
+                           'junctions' => graph.connections_for(data['id']).length,
+                           'broken' => report['broken_count'] })
+        else
+          graph_feedback("#{result['added'].length} new, #{result['upgraded'].length} T-junction(s) linked, #{result['restored'].length} reconnected.",
+                         { 'added' => result['added'].length,
+                           'upgraded' => result['upgraded'].length,
+                           'restored' => result['restored'].length })
+        end
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      refresh_panel
+    end
+
+    # Global scan reports actual outcomes rather than silently doing nothing.
+    # Promoting legacy Join Only tees must be an explicit user action.
+    def scan_wall_connections(promote_tees: false)
+      model = Sketchup.active_model
+      model.start_operation('ArchiBIM: Scan wall connections', true)
+      begin
+        graph = stored_wall_graph
+        walls = wall_inventory
+        previous = graph.records.length
+        promoted = []
+        if promote_tees
+          graph.records.each do |r|
+            next unless r['type'] == 'tee' && r['mode'] == 'join_only'
+            next unless graph.touching?(r, walls)
+            r['mode'] = 'linked'
+            promoted << r['id']
+          end
+        end
+        added = graph.detect(walls)
+        report = graph.audit(walls)
+        save_wall_graph(graph)
+        rebuild_wall_junctions(reconcile: false)
+        model.commit_operation
+        Diagnostics.log('graph_full_scan', { previously_recorded: previous,
+           added: added, upgraded: promoted, audit: report })
+        graph_feedback("Scanned #{walls.length} walls: #{added.length} new junction(s), #{promoted.length} T-junction(s) upgraded, #{report['broken_count']} broken link(s).",
+                       { 'new' => added.length, 'upgraded' => promoted.length,
+                         'linked' => report['linked_count'],
+                         'join_only' => report['join_only_count'],
+                         'broken' => report['broken_count'],
+                         'nearby_unconnected' => report['nearby_unconnected'].length })
       rescue StandardError
         model.abort_operation
         raise
@@ -1267,6 +1341,7 @@ module SSDigitalLab
         'report' => totals_report, 'model_title' => Sketchup.active_model.title.to_s,
         'length_labels' => length_labels, 'selected_area' => area,
         'wall_connections' => (data && data['kind'] == 'wall' ? wall_connections_payload(data['id']) : []),
+        'graph_feedback' => @graph_feedback,
         'tags' => tags_payload,
         'line_styles' => Sketchup.active_model.line_styles.names }
 
@@ -1337,6 +1412,8 @@ module SSDigitalLab
       dialog.add_action_callback('connection_mode') { |_ctx, id, mode| callback_safe { edit_wall_connection(id, mode) } }
       dialog.add_action_callback('unlink_entire_wall') { |_ctx| callback_safe { unlink_entire_wall } }
       dialog.add_action_callback('reconnect_wall') { |_ctx| callback_safe { reconnect_wall } }
+      dialog.add_action_callback('scan_wall_connections') { |_ctx| callback_safe { scan_wall_connections } }
+      dialog.add_action_callback('link_existing_tees') { |_ctx| callback_safe { scan_wall_connections(promote_tees: true) } }
       dialog.add_action_callback('move_opening_tool') { |_ctx, id| callback_safe { Sketchup.active_model.select_tool(OpeningMoveTool.new(id.to_s)) } }
       dialog.add_action_callback('reset_camera') { |_ctx| callback_safe { reset_perspective_camera } }
       dialog.add_action_callback('sync_stair_holes') { |_ctx| callback_safe { m=Sketchup.active_model; m.start_operation('ArchiBIM: Sync stair openings',true); begin; sync_stair_slab_openings; m.commit_operation; rescue StandardError; m.abort_operation; raise; end } }
@@ -1435,6 +1512,8 @@ module SSDigitalLab
       tools.add_item('Repair selected after native Scale') { callback_safe { rebuild_bim('selected', 'adopt_scale') } }
       tools.add_item('Export testing diagnostics') { callback_safe { export_diagnostics } }
       tools.add_item('Recalculate stair-to-slab cutouts') { callback_safe { m=Sketchup.active_model; m.start_operation('ArchiBIM: Reconcile stair openings',true); begin; sync_stair_slab_openings; m.commit_operation; rescue StandardError; m.abort_operation; raise; end } }
+      tools.add_item('Scan wall connections (with feedback)') { callback_safe { scan_wall_connections } }
+      tools.add_item('Link existing interior T-junctions') { callback_safe { scan_wall_connections(promote_tees: true) } }
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
       tools.add_item('Export schedule to CSV') { callback_safe { export_csv } }

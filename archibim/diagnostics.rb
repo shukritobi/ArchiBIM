@@ -27,7 +27,8 @@ module SSDigitalLab
           File.delete(archive) if File.exist?(archive)
           File.rename(path, archive)
         end
-        record = { 'at' => Time.now.iso8601, 'version' => ArchiBIM::VERSION,
+        @sequence = (@sequence || 0) + 1
+        record = { 'at' => Time.now.iso8601(3), 'sequence' => @sequence, 'version' => ArchiBIM::VERSION,
                    'event' => event.to_s, 'details' => details }
         File.open(path, 'a:UTF-8') { |f| f.puts(JSON.generate(record)) }
       rescue StandardError => error
@@ -49,12 +50,19 @@ module SSDigitalLab
           'levels' => ArchiBIM.levels,
           'active_level' => ArchiBIM.current_level['id'],
           'model_units' => model.options['UnitsOptions']['LengthUnit'],
+          'graph_schema' => 1,
+          'wall_graph' => ArchiBIM.stored_wall_graph.to_h,
+          'wall_audit' => ArchiBIM.stored_wall_graph.audit(ArchiBIM.wall_inventory),
           'elements' => elements.map do |group, data|
             t = group.transformation
             { 'id' => data['id'], 'kind' => data['kind'], 'level_id' => data['level_id'],
               'length' => data['length'], 'width' => data['width'], 'height' => data['height'],
               'scales' => [t.xaxis.length.to_f, t.yaxis.length.to_f, t.zaxis.length.to_f],
-              'openings' => data.fetch('openings', []).length }
+              'openings' => data.fetch('openings', []).length,
+              'alignment' => data['alignment'],
+              'thickness_mm' => data['thickness'],
+              'wall_reference_line_world_mm' => (data['kind'] == 'wall' ?
+                ArchiBIM.wall_descriptor(group, data).slice(:start, :end) : nil) }
           end
         }
         File.open(destination, 'w:UTF-8') do |file|

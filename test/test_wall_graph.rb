@@ -80,14 +80,14 @@ class TestWallGraph < Minitest::Test
     g=G.new
     assert_equal 2,g.detect(walls).length
   end
-  def test_tee_default_join_only
+  def test_tee_default_linked
     walls={'host'=>G.wall([0,0],[8000,0]),'branch'=>G.wall([4000,4000],[4000,0])}
     g=G.new
     joins=g.detect(walls)
     assert_equal 1,joins.length
     assert_equal 'tee',joins[0]['type']
-    assert_equal 'join_only',joins[0]['mode']
-    assert_equal [],g.move_plan(walls,'host',dx:0,dy:500)['changed']-['host']
+    assert_equal 'linked',joins[0]['mode']
+    assert_equal ['branch'],g.move_plan(walls,'host',dx:0,dy:500)['changed']-['host']
   end
   def test_tee_linked_host_move_reshapes_branch
     walls={'host'=>G.wall([0,0],[8000,0]),'branch'=>G.wall([4000,4000],[4000,0])}
@@ -97,11 +97,13 @@ class TestWallGraph < Minitest::Test
     assert_equal [4000,500],plan['walls']['branch']['end']
     assert_equal [4000,4000],plan['walls']['branch']['start']
   end
-  def test_tee_linked_branch_move_is_ambiguous
+  def test_tee_linked_branch_slides_along_host
     walls={'host'=>G.wall([0,0],[8000,0]),'branch'=>G.wall([4000,4000],[4000,0])}
     g=G.new; join=g.detect(walls).first
     g.set_mode(join['id'],'linked',walls)
-    assert_raises(ArgumentError){g.move_plan(walls,'branch',dx:500,dy:0)}
+    plan=g.move_plan(walls,'branch',dx:500,dy:0)
+    assert_equal ['branch'],plan['changed']
+    assert_equal [4500,0],plan['walls']['branch']['end']
   end
   def test_graph_serialization_unlink_persists
     g=graph

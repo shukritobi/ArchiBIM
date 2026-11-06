@@ -1,9 +1,15 @@
-# ArchiBIM 0.7.0
+# ArchiBIM 0.7.1
 
 **A practical parametric architecture/BIM extension for SketchUp Desktop**  
 Built by SS Digital Lab · 6 November 2026
 
 ArchiBIM makes architectural objects editable in SketchUp and stores BIM properties on the model. It is **an early functional prototype**, **not complete Revit or Archicad feature parity**, and has **not yet been runtime-tested inside SketchUp Desktop**. Make a backup before installing or testing on a real project.
+
+## v0.7.1 interior-wall connectivity repair
+
+**[See release notes and test instructions](docs/V0_7_1_RELEASE_NOTES.md).** New T-junctions now default to Linked, and wall-face contact detection respects the host wall's Left/Center/Right reference-line alignment. The BIM Manager shows per-junction Touching/Broken status and explicit scan results. Existing `join_only` T-junctions can be upgraded via **Properties > Detect / link nearby** or **Build > Link existing T-junctions**. Disabled / Unlinked relationships stay disconnected until explicitly changed. The Diagnostics export includes wall world coordinates, thickness, alignment, host-face offsets and detailed scan reports.
+
+**Important:** Existing v0.7.0 connection modes are deliberately preserved until you trigger the upgrade. This release does not silently override an existing Join Only or Unlinked setting.
 
 ## Install
 
@@ -40,7 +46,7 @@ If SketchUp disallows the unsigned extension, review your Extension Manager load
 
 Each model object is a SketchUp group with an `SSDigitalLab_ArchiBIM` attribute dictionary, plus a tag named `AB | ...`. All stored geometry dimensions are **millimetres**; quantities report metres/m²/m³. Costs in the UI are **illustrative RM estimates**, not verified material or construction prices.
 
-## 0.7.0 associative wall connections
+## 0.7.1 associative wall connections
 
 **[v0.7 release notes](docs/V0_7_RELEASE_NOTES.md)** · **[SketchUp test checklist](docs/V0_7_TEST_CHECKLIST.md)** · [v0.6 release notes](docs/V0_6_RELEASE_NOTES.md)
 

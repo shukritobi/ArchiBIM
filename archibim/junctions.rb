@@ -5,6 +5,7 @@ module SSDigitalLab
     module Junctions
       EPS = 0.000001
       ENDPOINT_TOLERANCE = 8.0
+      TEE_FACE_TOLERANCE = 10.0
       MIN_ANGLE_SIN = 0.15
       MITER_LIMIT_MULTIPLIER = 4.0
       module_function
@@ -102,11 +103,12 @@ module SSDigitalLab
         return nil if parallel.abs < MIN_ANGLE_SIN
         along = dot(sub(p, host[:start]), dh)
         host_length = dist(host[:start], host[:end])
-        return nil unless along > host[:thickness].to_f && along < host_length - host[:thickness].to_f
+        end_margin = [host[:thickness].to_f * 0.25, 25.0].min
+        return nil unless along > end_margin && along < host_length - end_margin
         signed_distance = dot(sub(p, host[:start]), nh)
         # The endpoint must actually touch the host's body or centre reference line.
         low, high = side_offsets(host[:thickness], host[:alignment])
-        return nil if signed_distance < low - ENDPOINT_TOLERANCE || signed_distance > high + ENDPOINT_TOLERANCE
+        return nil if signed_distance < low - TEE_FACE_TOLERANCE || signed_distance > high + TEE_FACE_TOLERANCE
         hits = [low, high].map { |side| (side - signed_distance) / parallel }
         hit = at == 'end' ? hits.min : hits.max
         return nil if hit.abs > host[:thickness].to_f * 2.0
