@@ -1,45 +1,83 @@
-# ArchiBIM
+<div align="center">
 
-### [⬇️ Download the latest ArchiBIM RBZ](https://github.com/shukritobi/ArchiBIM/releases/latest/download/ArchiBIM_latest.rbz)
+# 🏗️ ArchiBIM
 
-**[All releases and older versions](https://github.com/shukritobi/ArchiBIM/releases)** · **[v0.8.1 wall/Scale/passage fixes](docs/V0_8_1_RELEASE_NOTES.md)** · **[Report an issue](https://github.com/shukritobi/ArchiBIM/issues)**
+### Architectural BIM, made for SketchUp.
 
-> **Latest download policy:** `ArchiBIM_latest.rbz` always points to the asset in the most recent successful GitHub Release. Whenever changes land on `main`, the [release workflow](.github/workflows/release-rbz.yml) checks the extension, runs tests, packages a new RBZ and publishes it. **The button becomes usable when the first automated release succeeds.** Preview branches and untested changes do not silently replace a release.
+**Draw intelligently · Edit parametrically · Document with confidence**
 
-**Parametric architectural BIM for SketchUp Desktop.** Design building elements, edit parameters without losing wall or window dimensions, and develop drawing views, CAD handoffs and AI-readable project data in one open-source workflow.
+An open-source architectural toolkit by **SS Digital Lab**.
 
-[![GitHub latest release](https://img.shields.io/github/v/release/shukritobi/ArchiBIM?display_name=tag&label=latest%20release)](https://github.com/shukritobi/ArchiBIM/releases/latest) [![Source code](https://img.shields.io/badge/source-GitHub-181717?logo=github)](https://github.com/shukritobi/ArchiBIM) [![License MIT](https://img.shields.io/badge/license-MIT-teal)](LICENSE.txt)
+[![Latest RBZ](https://img.shields.io/badge/⬇%20DOWNLOAD-LATEST%20RBZ-0F766E?style=for-the-badge)](https://github.com/shukritobi/ArchiBIM/releases/latest/download/ArchiBIM_latest.rbz)
+[![Releases](https://img.shields.io/badge/VIEW-RELEASES-1F2937?style=for-the-badge)](https://github.com/shukritobi/ArchiBIM/releases)
+[![Issues](https://img.shields.io/badge/REPORT-A%20BUG-2563EB?style=for-the-badge)](https://github.com/shukritobi/ArchiBIM/issues)
 
-**Current development version:** 0.8.1 repair preview (12 November 2026)  
-**Built by:** SS Digital Lab  
-**Compatibility:** Designed for SketchUp Desktop; recommended initial testing on SketchUp Pro 2024–2026. SketchUp 2027 and other versions need independent acceptance tests. SketchUp Web does not run Ruby extensions.
+[![Release](https://img.shields.io/github/v/release/shukritobi/ArchiBIM?display_name=tag&label=Latest)](https://github.com/shukritobi/ArchiBIM/releases/latest)
+![SketchUp](https://img.shields.io/badge/SketchUp-Desktop%202024–2026-DC2626)
+[![CI](https://github.com/shukritobi/ArchiBIM/actions/workflows/ci.yml/badge.svg)](https://github.com/shukritobi/ArchiBIM/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-MIT-22A06B)](LICENSE.txt)
+
+**[Quick start](#quick-start)** · **[Line to Wall](#new-native-lines-to-smart-bim-walls)** · **[Drawing sets](#architectural-drawing-sets)** · **[AI & MCP](#ai-ready-chatgpt-claude-gemini-and-mcp)** · **[Research](docs/LINE_TO_WALL_RESEARCH.md)**
+
+</div>
 
 ---
 
-## Start here
+## Design with BIM intelligence
 
-| I want to… | Go to… |
-|---|---|
-| **Install the plugin** | [Latest RBZ download](https://github.com/shukritobi/ArchiBIM/releases/latest/download/ArchiBIM_latest.rbz) |
-| See the newest changes and limitations | [v0.8.0 preview notes](docs/V0_8_0_PREVIEW.md) |
-| Learn the existing wall-junction repair | [v0.7.1 release notes](docs/V0_7_1_RELEASE_NOTES.md) |
-| Generate floor plans, elevations and sections | [Drawing-set workflow](#architectural-drawing-sets) |
-| Work with AutoCAD or LayOut | [2D DXF and LayOut handoff](#cad-and-layout-workflow) |
-| Give ChatGPT, Claude or an MCP client access to BIM data | [AI and MCP setup](ai/README.md) |
-| Review 11 established BIM/CAD applications | [Research and roadmap](docs/RESEARCH_DRAWINGS_ROOFS_MCP.md) |
-| Understand known issues before production use | [Known limitations](#status-and-limitations) |
+| 🧱 **Model** | 🔗 **Connect** | 📐 **Document** | 🤖 **Integrate** |
+|:---|:---|:---|:---|
+| Parametric walls, rooms, slabs, stairs, roofs, beams and columns | Hosted doors/windows, joins and connected wall moves | Plans, elevations, sections, RCP previews and layered DXF | Model JSON, schedules and optional read-only MCP |
+| Edit dimensions without exploding groups | Linked corners and T-junctions | Scene-based LayOut handoff | Persistent BIM IDs and level-aware data |
 
-### Install in SketchUp
+## New: Native lines to smart BIM walls
 
-1. **Download** `ArchiBIM_latest.rbz` using the link at the top. If no release asset exists yet, visit [Releases](https://github.com/shukritobi/ArchiBIM/releases); do not mistake a source-code ZIP for an installable RBZ.
-2. Open **SketchUp Desktop → Extensions → Extension Manager → Install Extension**.
-3. Select the downloaded `.rbz`.
-4. Open **Extensions → ArchiBIM → ArchiBIM BIM Manager**, or use the ArchiBIM toolbar.
-5. Start with a **new test model**, click **Create demo model**, and inspect the wall in **Properties**.
+**SketchUp's Line tool becomes a BIM sketch tool.** No duplicate linework and no separate drawing tool.
 
-Back up any working `.skp` before trying a preview. The extension is a developing parametric tool, not a certified building documentation or structural engineering solution.
+**Line (L)** → **Draw a flat connected plan** → **Select a line** → **Convert connected lines to walls**
+
+| Your native SketchUp drawing | ArchiBIM result |
+|:---|:---|
+| Separate edges or a connected rectangle | Editable walls with automatically detected corners |
+| Multiple collinear line segments | One continuous parametric wall |
+| A branch ending at another line | Connected T-junction |
+| Two crossing lines / four-arm plus | One continuous host and two linked T branches |
+| Sloped / different-Z lines | Explains the problem before changing the model |
+| Overlapping or too-short segments | Stops safely for cleanup |
+
+Open **Extensions → ArchiBIM → BIM Manager → Build → Convert connected lines to walls**, or **Extensions → ArchiBIM → Convert connected lines to BIM walls**.
+
+Original source edges are **preserved**. All generated walls use the current level's wall height, thickness and alignment. The operation is **one SketchUp Undo step**. Lines must lie on **one horizontal plane**, within 1 mm of the active level. Ambiguous Y/star junctions are flagged for manual review.
+
+[**Full workflow, research and QA checklist →**](docs/LINE_TO_WALL_RESEARCH.md)
+
+---
+
+## Quick start
+
+1. **[Download the latest ArchiBIM RBZ](https://github.com/shukritobi/ArchiBIM/releases/latest/download/ArchiBIM_latest.rbz)**. Check **Releases** if the latest asset has not been published yet.
+2. In **SketchUp Desktop → Extensions → Extension Manager → Install Extension**, choose the RBZ.
+3. Restart SketchUp after an upgrade. Open **Extensions → ArchiBIM → BIM Manager**.
+4. Select the correct story, wall thickness and height in **Build**.
+5. Draw lines with the **native Line tool (L)**, select one line and click **Convert connected lines to walls**.
+6. Review the connected wall graph and Diagnostics. Use a backed-up model for preview testing.
+
+> **Status:** v0.8.2 conversion algorithms pass standalone Ruby tests. Installed SketchUp 2026 UI and wall-solid acceptance tests remain pending. The latest RBZ is published by GitHub Actions only after checks pass on main. SketchUp Web cannot run Ruby extensions.
 
 ## What's new
+
+<details open>
+<summary><strong>v0.8.2 · Native connected-line conversion</strong></summary>
+
+- Draw with **SketchUp Line (L)**, select an edge or bounded face and turn the connected network into native parametric **ArchiBIM walls**.
+- Detect **corners, T-junctions, crosses and straight chains**. Split crossing branches while preserving a continuous host.
+- Validate a **single horizontal plane**, active-level elevation, overlaps and 50 mm minimum wall size before writing anything.
+- Keep original source edges and make the whole conversion **one Undo action**; record wall counts and junctions in Diagnostics.
+- Detect duplicate existing BIM walls and flag complex three-way/star joins instead of silently joining them incorrectly.
+
+[Research and desktop QA checklist](docs/LINE_TO_WALL_RESEARCH.md).
+
+</details>
 
 <details open>
 <summary><strong>v0.8.1 · Wall connection, Scale and doorless opening repair</strong></summary>
@@ -174,6 +212,8 @@ archibim/geometry.rb           3D solids, roofs, doors, windows and detailing
 archibim/documentation.rb      Floor plans, elevations, sections and RCP scenes
 archibim/dxf_export.rb         Layered preliminary 2D CAD drawings
 archibim/wall_graph.rb         Associative wall constraints and junctions
+archibim/line_wall_import.rb   Pure Ruby connected-line solver
+archibim/line_wall_adapter.rb  SketchUp edge selection and wall creation
 archibim/connected_move.rb     Safe connected-wall interaction
 archibim/repair.rb             Native Scale normalization
 archibim/diagnostics.rb        Detailed local log export
@@ -197,7 +237,7 @@ CI performs Ruby syntax checks, tests, installer ZIP validation and release pack
 
 ArchiBIM is an **early working prototype**. There is no claim of full Revit/Archicad parity. Important outstanding features include full multi-way wall joins; general polygon roof plane/valley solving; dormers and curved roofs; ceiling families and reliable RCP linework; mature hatching/hidden-line CAD extraction; linked dimensions and professional drawing sheets; structural/drainage sizing; hosted MEP; native RVT/PLN exchange; lossless IFC roundtrips; and a permissioned live SketchUp MCP editing bridge.
 
-**Do not use preliminary exports or roof/steel geometry as construction documentation without independent checking.**
+**Do not use preliminary exports or roof/steel geometry as construction documentation without independent checking.** Line-to-wall geometry needs independent SketchUp desktop acceptance testing before production use.
 
 ## License and contributions
 
