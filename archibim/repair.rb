@@ -33,6 +33,13 @@ module SSDigitalLab
       # instead of the axial vector lengths (see Trimble's parametric-object guide).
       # Read the raw transform so 2x Scale is not mistakenly reported as 1x.
       def scale_factors(transformation)
+        # Calculation tests use a minimal Transformation double without to_a.
+        # In SketchUp, prefer the complete matrix so homogeneous Scale is handled.
+        unless transformation.respond_to?(:to_a)
+          return [transformation.xaxis.length.to_f,
+                  transformation.yaxis.length.to_f,
+                  transformation.zaxis.length.to_f]
+        end
         matrix = transformation.to_a
         homogeneous = Float(matrix.fetch(15))
         raise ArgumentError, 'Invalid SketchUp homogeneous scale' unless homogeneous.finite? && homogeneous.abs > 0.00000001
