@@ -58,7 +58,7 @@ module SSDigitalLab
           elsif da.abs < EPS
             cuts << [a]
           elsif (da < -EPS && db > EPS) || (da > EPS && db < -EPS)
-            t = -da / (db - da)
+            t = -da.to_f / (db - da).to_f
             cuts << [a.each_index.map { |j| a[j] + (b[j] - a[j]) * t }]
           end
         end
