@@ -104,7 +104,7 @@ module SSDigitalLab
           elsif key == 'stair_steps'
             h[key] = number(raw[key], key, min: 0, max: 100).to_i
           elsif key == 'roof_pitch'
-            h[key] = number(raw[key], key, min: 0, max: 79.9)
+            h[key] = number(raw[key], key, min: 0, max: 79.9, allow_zero: true)
           elsif %w[beam_offset window_sill roof_overhang roof_eave_offset stair_hole_clearance].include?(key)
             h[key] = number(raw[key], key, min: 0, allow_zero: true)
           else
