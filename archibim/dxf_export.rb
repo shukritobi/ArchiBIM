@@ -129,7 +129,18 @@ module SSDigitalLab
           w = opening['width'].to_f
           next unless x >= 0 && w > 0
           tr = wall.transformation
-          if opening['kind'] == 'door'
+          if Core.leafless_door?(opening)
+            # Reveal rectangle; put dashed outline on dedicated opening layer.
+            low, high = Junctions.side_offsets(data['thickness'], data.fetch('alignment', 'center'))
+            p = [[x, low], [x+w, low], [x+w, high], [x, high]]
+            points = p.map do |u,v|
+              coordinates(Geom::Point3d.new(u.mm, v.mm, 1200.mm).transform(tr))
+            end
+            points.each_with_index do |a,i|
+              segments << ['AB_2D_OPENINGS', project(a,'ground'),
+                           project(points[(i+1)%points.length],'ground')]
+            end
+          elsif opening['kind'] == 'door'
             left_hinge = opening.fetch('hinge', 'left') != 'right'
             hinge = left_hinge ? x : x+w
             a0 = left_hinge ? 0.0 : Math::PI
