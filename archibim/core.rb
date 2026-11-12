@@ -26,6 +26,7 @@ module SSDigitalLab
         'column_depth' => 300.0, 'column_height' => 3000.0,
         'beam_width' => 300.0, 'beam_depth' => 450.0, 'beam_offset' => 2400.0,
         'door_width' => 900.0, 'door_height' => 2100.0,
+        'door_leafless' => false,
         'door_mount' => 'center', 'window_mount' => 'center',
         'sliding_door_width' => 2400.0, 'sliding_door_height' => 2100.0,
         'sliding_door_mount' => 'center', 'sliding_door_panels' => 2,
@@ -86,7 +87,7 @@ module SSDigitalLab
           elsif key == 'truss_style'
             raise ArgumentError, 'Unknown truss pattern' unless %w[king_post fink].include?(raw[key])
             h[key] = raw[key]
-          elsif %w[auto_wall_join roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
+          elsif %w[auto_wall_join door_leafless roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
             h[key] = (raw[key] == true || raw[key].to_s == 'true' || raw[key] == 1)
           elsif key == 'stair_structure'
             raise ArgumentError, 'Stair construction must be waist or open' unless %w[waist open].include?(raw[key])
@@ -261,6 +262,10 @@ module SSDigitalLab
         q
       end
 
+      def self.leafless_door?(opening)
+        opening['kind'] == 'door' && opening.fetch('leafless', false) == true
+      end
+
       def self.cost(data, rates)
         q = quantities(data)
         r = Float(rates.fetch(data['kind'], 0.0))
@@ -272,7 +277,9 @@ module SSDigitalLab
                end
         total = r * unit
         if data['kind'] == 'wall'
-          (data['openings'] || []).each { |o| total += Float(rates.fetch(o['kind'], 0.0)) }
+          (data['openings'] || []).each do |o|
+            total += Float(rates.fetch(o['kind'], 0.0)) unless leafless_door?(o)
+          end
         end
         total
       end
