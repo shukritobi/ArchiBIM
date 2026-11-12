@@ -11,13 +11,14 @@ require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'tools'
 require_relative 'connected_move'
+require_relative 'line_wall_adapter'
 require_relative 'documentation'
 require_relative 'dxf_export'
 
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.8.1'
+    VERSION = '0.8.2'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -1442,6 +1443,7 @@ module SSDigitalLab
       dialog.add_action_callback('unlink_entire_wall') { |_ctx| callback_safe { unlink_entire_wall } }
       dialog.add_action_callback('reconnect_wall') { |_ctx| callback_safe { reconnect_wall } }
       dialog.add_action_callback('scan_wall_connections') { |_ctx| callback_safe { scan_wall_connections } }
+      dialog.add_action_callback('convert_lines_to_walls') { |_ctx| callback_safe { convert_selected_lines_to_walls } }
       dialog.add_action_callback('link_existing_tees') { |_ctx| callback_safe { scan_wall_connections(promote_tees: true) } }
       dialog.add_action_callback('move_opening_tool') { |_ctx, id| callback_safe { Sketchup.active_model.select_tool(OpeningMoveTool.new(id.to_s)) } }
       dialog.add_action_callback('reset_camera') { |_ctx| callback_safe { reset_perspective_camera } }
@@ -1538,6 +1540,7 @@ module SSDigitalLab
         end
       end
       tools.add_item('Draw wall') { Sketchup.active_model.select_tool(DrawTool.new('wall')) }
+      tools.add_item('Convert connected lines to BIM walls') { callback_safe { convert_selected_lines_to_walls } }
       tools.add_item('Insert door') { Sketchup.active_model.select_tool(OpeningTool.new('door')) }
       tools.add_item('Insert sliding door') { Sketchup.active_model.select_tool(OpeningTool.new('sliding_door')) }
       tools.add_item('Move hosted opening') { Sketchup.active_model.select_tool(OpeningMoveTool.new) }
