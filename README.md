@@ -2,7 +2,7 @@
 
 ### [⬇️ Download the latest ArchiBIM RBZ](https://github.com/shukritobi/ArchiBIM/releases/latest/download/ArchiBIM_latest.rbz)
 
-**[All releases and older versions](https://github.com/shukritobi/ArchiBIM/releases)** · **[What's new in v0.8.0](docs/V0_8_0_PREVIEW.md)** · **[Report an issue](https://github.com/shukritobi/ArchiBIM/issues)**
+**[All releases and older versions](https://github.com/shukritobi/ArchiBIM/releases)** · **[v0.8.1 wall/Scale/passage fixes](docs/V0_8_1_RELEASE_NOTES.md)** · **[Report an issue](https://github.com/shukritobi/ArchiBIM/issues)**
 
 > **Latest download policy:** `ArchiBIM_latest.rbz` always points to the asset in the most recent successful GitHub Release. Whenever changes land on `main`, the [release workflow](.github/workflows/release-rbz.yml) checks the extension, runs tests, packages a new RBZ and publishes it. **The button becomes usable when the first automated release succeeds.** Preview branches and untested changes do not silently replace a release.
 
@@ -10,7 +10,7 @@
 
 [![GitHub latest release](https://img.shields.io/github/v/release/shukritobi/ArchiBIM?display_name=tag&label=latest%20release)](https://github.com/shukritobi/ArchiBIM/releases/latest) [![Source code](https://img.shields.io/badge/source-GitHub-181717?logo=github)](https://github.com/shukritobi/ArchiBIM) [![License MIT](https://img.shields.io/badge/license-MIT-teal)](LICENSE.txt)
 
-**Current development version:** 0.8.0 preview (12 November 2026)  
+**Current development version:** 0.8.1 repair preview (12 November 2026)  
 **Built by:** SS Digital Lab  
 **Compatibility:** Designed for SketchUp Desktop; recommended initial testing on SketchUp Pro 2024–2026. SketchUp 2027 and other versions need independent acceptance tests. SketchUp Web does not run Ruby extensions.
 
@@ -40,6 +40,21 @@
 Back up any working `.skp` before trying a preview. The extension is a developing parametric tool, not a certified building documentation or structural engineering solution.
 
 ## What's new
+
+<details open>
+<summary><strong>v0.8.1 · Wall connection, Scale and doorless opening repair</strong></summary>
+
+- Fixed **Invalid auto_wall_join**: a Boolean model preference was incorrectly interpreted as a number, stopping wall T-junction scans and interfering with repair workflows.
+- Improved native SketchUp **Scale** handling via both model transaction and Scale Tool event observers. Handles transformations encoded using the homogeneous matrix scale component and logs detected/rejected repairs.
+- **Door → Open passage**: select a hosted door under Properties, enable **Open passage: no frame / no leaf** and update; the wall void remains, but the 3D door/frame/swing disappears. New empty openings can be created from the Door tool preset or the **Add opening** menu.
+- Separate **dashed 2D plan and elevation opening outlines** and a corresponding dashed **DXF passage footprint** instead of a door leaf/swing. Quantity takeoffs do not add a door-leaf allowance for an empty passage.
+- Diagnostics export full group transformation matrices, accurate Scale factors, element world origin and doorless-opening counts.
+
+**Recommended SketchUp 2026 verification:** Back up your model. Restart SketchUp after installing a new RBZ so stale plugin Ruby is unloaded. Use **Build → Scan all walls** and inspect **Properties → Associative Wall Connections**. Scale a single wall in its length direction, confirm wall thickness and opening width stay unchanged, then test Scale on a copied floor plan. Finally convert an existing door to a passage and check its plan/elevation/DXF representation. If an operation still fails, export **Diagnostics → ArchiBIM testing log** and include the original SKP reference geometry or screenshots.
+
+[Read the failure analysis and acceptance test](docs/V0_8_1_RELEASE_NOTES.md)
+
+</details>
 
 <details open>
 <summary><strong>v0.8.0 preview · Drawings, roof choices, CAD and AI integration</strong></summary>
