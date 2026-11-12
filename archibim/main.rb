@@ -806,7 +806,7 @@ module SSDigitalLab
                      when 'stair' then %w[run width rise steps]
                      when 'room' then %w[width depth]
                      end
-      basic_fields.each { |key| Core.number(data[key], key, min: 0, max: 1_000_000) }
+      basic_fields.each { |key| Core.number(data[key], key, min: 0, max: 1_000_000, allow_zero: key == 'pitch') }
       Core.number(data['offset'], 'offset', min: 0, allow_zero: true) if kind == 'beam'
       if %w[wall beam column].include?(kind)
         raise 'Alignment must be left, center, or right' unless %w[left center right].include?(data.fetch('alignment', 'center'))
