@@ -11,11 +11,12 @@ require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'tools'
 require_relative 'connected_move'
+require_relative 'documentation'
 
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.7.1'
+    VERSION = '0.8.0'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -1445,6 +1446,13 @@ module SSDigitalLab
       dialog.add_action_callback('json') { |_ctx| callback_safe { export_json } }
       dialog.add_action_callback('ifc') { |_ctx| callback_safe { export_ifc } }
       dialog.add_action_callback('scene') { |_ctx| callback_safe { make_plan_scene } }
+      dialog.add_action_callback('drawing_set') do |_ctx|
+        callback_safe do
+          names = Documentation.make_set
+          UI.messagebox("ArchiBIM drawing scenes ready (#{names.size}):\n" + names.join("\n") + "\n\nOpen these scenes in LayOut. RCPs are previews pending ceiling objects.")
+        end
+      end
+      dialog.add_action_callback('ai_snapshot') { |_ctx| callback_safe { Documentation.export_ai_snapshot } }
       dialog.add_action_callback('demo') { |_ctx| callback_safe { create_demo } }
       dialog.add_action_callback('refresh') { |_ctx| callback_safe { refresh_panel } }
     end
@@ -1516,6 +1524,8 @@ module SSDigitalLab
       tools.add_item('Link existing interior T-junctions') { callback_safe { scan_wall_connections(promote_tees: true) } }
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
+      tools.add_item('Generate architectural drawing set') { callback_safe { Documentation.make_set } }
+      tools.add_item('Export AI-readable model snapshot') { callback_safe { Documentation.export_ai_snapshot } }
       tools.add_item('Export schedule to CSV') { callback_safe { export_csv } }
       tools.add_item('Export IFC') { callback_safe { export_ifc } }
       toolbar = UI::Toolbar.new('ArchiBIM')
