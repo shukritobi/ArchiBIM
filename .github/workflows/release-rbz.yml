@@ -3,6 +3,8 @@ name: Package and publish latest ArchiBIM RBZ
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +26,8 @@ jobs:
           ruby -c ArchiBIM.rb
       - name: Run pure Ruby regression tests
         run: ruby -e 'Dir["test/test_*.rb"].sort.each { |f| require_relative f }'
+      - name: Verify offline Python MCP server
+        run: python3 -m unittest discover -s ai -p 'test_*.py'
       - name: Package installable RBZ
         run: |
           python3 - <<'PY'
@@ -42,6 +46,7 @@ jobs:
               assert 'archibim/ui/panel.html' in archive.namelist()
           PY
       - name: Publish immutable build and update latest download
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
