@@ -29,8 +29,19 @@ module SSDigitalLab
         data
       end
 
+      # SketchUp can encode uniform Scale in the homogeneous matrix [15]
+      # instead of the axial vector lengths (see Trimble's parametric-object guide).
+      # Read the raw transform so 2x Scale is not mistakenly reported as 1x.
       def scale_factors(transformation)
-        [transformation.xaxis.length.to_f, transformation.yaxis.length.to_f, transformation.zaxis.length.to_f]
+        matrix = transformation.to_a
+        homogeneous = Float(matrix.fetch(15))
+        raise ArgumentError, 'Invalid SketchUp homogeneous scale' unless homogeneous.finite? && homogeneous.abs > 0.00000001
+        [0, 4, 8].map do |index|
+          len = Math.sqrt((0..2).sum { |axis| Float(matrix[index + axis])**2 })
+          factor = len / homogeneous.abs
+          raise ArgumentError, 'Invalid SketchUp Scale factor' unless factor.finite? && factor > 0.0
+          factor
+        end
       end
 
       def normalized_transform(transform)
