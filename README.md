@@ -79,7 +79,7 @@ Original source edges are **preserved**. All generated walls use the current lev
 
 </details>
 
-<details open>
+<details>
 <summary><strong>v0.8.1 · Wall connection, Scale and doorless opening repair</strong></summary>
 
 - Fixed **Invalid auto_wall_join**: a Boolean model preference was incorrectly interpreted as a number, stopping wall T-junction scans and interfering with repair workflows.
@@ -94,7 +94,7 @@ Original source edges are **preserved**. All generated walls use the current lev
 
 </details>
 
-<details open>
+<details>
 <summary><strong>v0.8.0 preview · Drawings, roof choices, CAD and AI integration</strong></summary>
 
 | Area | New capability | Maturity |
