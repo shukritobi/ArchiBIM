@@ -805,7 +805,9 @@ module SSDigitalLab
                                   point(150.0, 150.0, 12.0))
         end
         group.material = material(model, kind)
-        group.name = data.fetch('name', kind.capitalize)
+        # Display consistent AB | identifiers in Outliner without changing BIM data or LayOut tags.
+        label = data.fetch('name', kind.capitalize).to_s
+        group.name = label.start_with?('AB | ') ? label : "AB | #{label} | #{data['id'].to_s[0,8]}"
         group.set_attribute('SSDigitalLab_ArchiBIM', 'kind', kind)
         group.set_attribute('SSDigitalLab_ArchiBIM', 'data', JSON.generate(data))
         classify(group, IFC.fetch(kind))
