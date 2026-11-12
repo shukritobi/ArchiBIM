@@ -12,6 +12,7 @@ require_relative 'diagnostics'
 require_relative 'tools'
 require_relative 'connected_move'
 require_relative 'documentation'
+require_relative 'dxf_export'
 
 module SSDigitalLab
   module ArchiBIM
@@ -1460,6 +1461,7 @@ module SSDigitalLab
         end
       end
       dialog.add_action_callback('ai_snapshot') { |_ctx| callback_safe { Documentation.export_ai_snapshot } }
+      dialog.add_action_callback('dxf_set') { |_ctx| callback_safe { DxfExport.export_set } }
       dialog.add_action_callback('demo') { |_ctx| callback_safe { create_demo } }
       dialog.add_action_callback('refresh') { |_ctx| callback_safe { refresh_panel } }
     end
@@ -1532,6 +1534,7 @@ module SSDigitalLab
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
       tools.add_item('Generate architectural drawing set') { callback_safe { Documentation.make_set } }
+      tools.add_item('Export layered DXF drawing set') { callback_safe { DxfExport.export_set } }
       tools.add_item('Export AI-readable model snapshot') { callback_safe { Documentation.export_ai_snapshot } }
       tools.add_item('Export schedule to CSV') { callback_safe { export_csv } }
       tools.add_item('Export IFC') { callback_safe { export_ifc } }
