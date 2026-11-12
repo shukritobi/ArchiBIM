@@ -1,0 +1,60 @@
+name: Package and publish latest ArchiBIM RBZ
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: archibim-latest-rbz
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+      - name: Check extension Ruby syntax
+        run: |
+          find archibim -type f -name '*.rb' -print0 | xargs -0 -n1 ruby -c
+          ruby -c ArchiBIM.rb
+      - name: Run pure Ruby regression tests
+        run: ruby -e 'Dir["test/test_*.rb"].sort.each { |f| require_relative f }'
+      - name: Verify offline Python MCP server
+        run: python3 -m unittest discover -s ai -p 'test_*.py'
+      - name: Package installable RBZ
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          root = Path.cwd()
+          extension = root / 'ArchiBIM.rb'
+          sources = sorted(p for p in (root / 'archibim').rglob('*') if p.is_file() and not any(t in p.parts for t in ('__pycache__', '.DS_Store')))
+          assert extension.exists() and sources, 'Missing extension entry point or archibim source'
+          with ZipFile('ArchiBIM_latest.rbz', 'w', ZIP_DEFLATED) as archive:
+              for path in [extension, *sources]:
+                  archive.write(path, path.relative_to(root).as_posix())
+          with ZipFile('ArchiBIM_latest.rbz') as archive:
+              assert 'ArchiBIM.rb' in archive.namelist()
+              assert 'archibim/main.rb' in archive.namelist()
+              assert 'archibim/ui/panel.html' in archive.namelist()
+          PY
+      - name: Publish immutable build and update latest download
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="$(ruby -ne 'if $_ =~ /VERSION = .([0-9.]+)./; puts $1; exit; end' archibim/main.rb)"
+          test -n "$version"
+          tag="v${version}-build.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" ArchiBIM_latest.rbz \
+            --target "$GITHUB_SHA" --latest \
+            --title "ArchiBIM v${version} (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Automated RBZ from commit ${GITHUB_SHA}. Passed Ruby syntax and calculation tests. Desktop SketchUp acceptance testing is still required."

@@ -11,11 +11,13 @@ require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'tools'
 require_relative 'connected_move'
+require_relative 'documentation'
+require_relative 'dxf_export'
 
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.7.1'
+    VERSION = '0.8.0'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -78,13 +80,13 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
+        next if %w[rates wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       validated = Core.settings(settings.merge(patch))
@@ -318,6 +320,9 @@ module SSDigitalLab
           data['roof_type'] = s['roof_type']
           data['infill'] = s['roof_infill']
           data['infill_thickness'] = s['roof_infill_thickness']
+          %w[gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts].each do |key|
+            data[key] = s[key]
+          end
         end
       elsif kind == 'column'
         transform = Geom::Transformation.new(Geom::Point3d.new(p1.x, p1.y, level['elevation'].mm))
@@ -801,7 +806,7 @@ module SSDigitalLab
                      when 'stair' then %w[run width rise steps]
                      when 'room' then %w[width depth]
                      end
-      basic_fields.each { |key| Core.number(data[key], key, min: 0, max: 1_000_000) }
+      basic_fields.each { |key| Core.number(data[key], key, min: 0, max: 1_000_000, allow_zero: key == 'pitch') }
       Core.number(data['offset'], 'offset', min: 0, allow_zero: true) if kind == 'beam'
       if %w[wall beam column].include?(kind)
         raise 'Alignment must be left, center, or right' unless %w[left center right].include?(data.fetch('alignment', 'center'))
@@ -810,7 +815,11 @@ module SSDigitalLab
         raise 'Roof pitch must be less than 80 degrees' if data['pitch'].to_f >= 80
         Core.number(data['overhang'], 'overhang', min: 0, allow_zero: true)
         Core.number(data['eave_offset'], 'eave_offset', min: 0, allow_zero: true)
-        raise 'Roof type must be gable or hip' unless %w[gable hip].include?(data.fetch('roof_type', 'gable'))
+        raise 'Unknown roof type' unless %w[gable hip shed awning flat butterfly saltbox].include?(data.fetch('roof_type', 'gable'))
+        raise 'Invalid truss type' unless %w[king_post fink].include?(data.fetch('truss_style', 'king_post'))
+        %w[gutter_width gutter_depth downpipe_diameter downpipe_drop truss_spacing truss_member].each do |field|
+          Core.number(data[field], field) if data.key?(field)
+        end
         Core.number(data.fetch('infill_thickness', 150.0), 'infill thickness', min: 0)
       end
       if kind == 'stair'
@@ -844,13 +853,13 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment exterior_side roof_type style structure handrail].include?(key)
+        if %w[name code notes level_id alignment exterior_side roof_type truss_style style structure handrail].include?(key)
           data[key] = value.to_s[0, 250]
-        elsif %w[infill cut_slab].include?(key)
+        elsif %w[infill cut_slab gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
           data[key] = !!value
         elsif key == 'steps'
           data[key] = Core.number(value, 'steps', min: 0, max: 100).to_i
@@ -1445,6 +1454,14 @@ module SSDigitalLab
       dialog.add_action_callback('json') { |_ctx| callback_safe { export_json } }
       dialog.add_action_callback('ifc') { |_ctx| callback_safe { export_ifc } }
       dialog.add_action_callback('scene') { |_ctx| callback_safe { make_plan_scene } }
+      dialog.add_action_callback('drawing_set') do |_ctx|
+        callback_safe do
+          names = Documentation.make_set
+          UI.messagebox("ArchiBIM drawing scenes ready (#{names.size}):\n" + names.join("\n") + "\n\nOpen these scenes in LayOut. RCPs are previews pending ceiling objects.")
+        end
+      end
+      dialog.add_action_callback('ai_snapshot') { |_ctx| callback_safe { Documentation.export_ai_snapshot } }
+      dialog.add_action_callback('dxf_set') { |_ctx| callback_safe { DxfExport.export_set } }
       dialog.add_action_callback('demo') { |_ctx| callback_safe { create_demo } }
       dialog.add_action_callback('refresh') { |_ctx| callback_safe { refresh_panel } }
     end
@@ -1516,6 +1533,9 @@ module SSDigitalLab
       tools.add_item('Link existing interior T-junctions') { callback_safe { scan_wall_connections(promote_tees: true) } }
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
+      tools.add_item('Generate architectural drawing set') { callback_safe { Documentation.make_set } }
+      tools.add_item('Export layered DXF drawing set') { callback_safe { DxfExport.export_set } }
+      tools.add_item('Export AI-readable model snapshot') { callback_safe { Documentation.export_ai_snapshot } }
       tools.add_item('Export schedule to CSV') { callback_safe { export_csv } }
       tools.add_item('Export IFC') { callback_safe { export_ifc } }
       toolbar = UI::Toolbar.new('ArchiBIM')

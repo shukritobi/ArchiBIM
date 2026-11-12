@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shukritobi/ArchiBIM/blob/main/ai/archibim-snapshot.schema.json",
+  "title": "ArchiBIM user-exported read-only snapshot",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "application",
+    "version",
+    "units",
+    "levels",
+    "elements",
+    "drawings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "application": {
+      "const": "ArchiBIM"
+    },
+    "version": {
+      "type": "string"
+    },
+    "model_title": {
+      "type": "string"
+    },
+    "units": {
+      "const": "mm"
+    },
+    "levels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "elevation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "elevation": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "level_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string"
+          },
+          "level_id": {
+            "type": "string"
+          },
+          "world_origin_mm": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          }
+        }
+      }
+    },
+    "drawings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "name"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "level_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
