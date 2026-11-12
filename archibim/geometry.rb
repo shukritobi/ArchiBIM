@@ -537,7 +537,8 @@ module SSDigitalLab
         walls = case mode
                 when 'gable', 'saltbox' then [[:along_y, x0], [:along_y, x1]]
                 when 'butterfly' then [[:along_y, xm]]
-                when 'shed', 'awning', 'flat' then [[:along_y, x0]]
+                when 'awning' then [[:along_y, x1]]
+                when 'shed', 'flat' then [[:along_y, x0]]
                 else [[:along_y, x0], [:along_y, x1], [:along_x, y0], [:along_x, y1]]
                 end
         finish = material(model, 'frame')
@@ -594,12 +595,12 @@ module SSDigitalLab
           child.layer = tag
           height0 = base + width * Math.tan(data['pitch'].to_f * Math::PI / 180)
           [0.0, depth].each do |y|
-            steel_member(child, [0, y, base-100], [width, y, height0-100], member, finish)
+            steel_member(child, [0, y, height0-100], [width, y, base-100], member, finish)
             if data.fetch('awning_posts', true)
-              steel_member(child, [width, y, 0], [width, y, height0-100], member, finish)
+              steel_member(child, [width, y, 0], [width, y, base-100], member, finish)
             end
           end
-          steel_member(child, [width, 0, height0-100], [width, depth, height0-100], member, finish)
+          steel_member(child, [width, 0, base-100], [width, depth, base-100], member, finish)
         elsif data.fetch('truss_enabled', false) && %w[gable saltbox].include?(mode)
           spacing = [data.fetch('truss_spacing', 1200.0).to_f, 100.0].max
           count = [[(depth/spacing).ceil, 1].max, 100].min
@@ -654,9 +655,11 @@ module SSDigitalLab
           else
             roof_rise = mode == 'flat' ? [rise, Math.tan(3.0*Math::PI/180.0)].min : rise
             ridge_height = base + (x1-x0)*roof_rise
-            polys = [
-              [[x0,y0,base],[x1,y0,ridge_height],[x1,y1,ridge_height],[x0,y1,base]]
-            ]
+            polys = if mode == 'awning'
+                      [[[x0,y0,ridge_height],[x1,y0,base],[x1,y1,base],[x0,y1,ridge_height]]]
+                    else
+                      [[[x0,y0,base],[x1,y0,ridge_height],[x1,y1,ridge_height],[x0,y1,base]]]
+                    end
           end
           polys.each { |poly| roof_panel(entities, poly, thickness) }
           roof_steelwork(entities, data, model, mode, width, depth, o, base, ridge_height)
