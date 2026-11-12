@@ -86,7 +86,7 @@ module SSDigitalLab
           elsif key == 'truss_style'
             raise ArgumentError, 'Unknown truss pattern' unless %w[king_post fink].include?(raw[key])
             h[key] = raw[key]
-          elsif %w[roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
+          elsif %w[auto_wall_join roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
             h[key] = (raw[key] == true || raw[key].to_s == 'true' || raw[key] == 1)
           elsif key == 'stair_structure'
             raise ArgumentError, 'Stair construction must be waist or open' unless %w[waist open].include?(raw[key])
