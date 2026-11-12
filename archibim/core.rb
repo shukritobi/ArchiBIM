@@ -15,7 +15,14 @@ module SSDigitalLab
         'slab_thickness' => 150.0, 'footing_thickness' => 450.0,
         'roof_thickness' => 125.0, 'roof_pitch' => 25.0, 'roof_overhang' => 450.0,
         'roof_type' => 'gable', 'roof_infill' => true, 'roof_infill_thickness' => 150.0,
-        'roof_eave_offset' => 3000.0, 'column_width' => 300.0,
+        'roof_eave_offset' => 3000.0,
+        'gutter_enabled' => false, 'downpipe_enabled' => false,
+        'gutter_width' => 150.0, 'gutter_depth' => 100.0,
+        'downpipe_diameter' => 75.0, 'downpipe_drop' => 3000.0,
+        'truss_enabled' => false, 'truss_style' => 'king_post',
+        'truss_spacing' => 1200.0, 'truss_member' => 75.0,
+        'awning_posts' => true,
+        'column_width' => 300.0,
         'column_depth' => 300.0, 'column_height' => 3000.0,
         'beam_width' => 300.0, 'beam_depth' => 450.0, 'beam_offset' => 2400.0,
         'door_width' => 900.0, 'door_height' => 2100.0,
@@ -74,9 +81,12 @@ module SSDigitalLab
             raise ArgumentError, 'Sliding direction must be left or right' unless %w[left right].include?(raw[key])
             h[key] = raw[key]
           elsif key == 'roof_type'
-            raise ArgumentError, 'Roof style must be gable or hip' unless %w[gable hip].include?(raw[key])
+            raise ArgumentError, 'Unknown roof style' unless %w[gable hip shed awning flat butterfly saltbox].include?(raw[key])
             h[key] = raw[key]
-          elsif %w[roof_infill auto_repair_scale stair_cut_slab room_add_zone].include?(key)
+          elsif key == 'truss_style'
+            raise ArgumentError, 'Unknown truss pattern' unless %w[king_post fink].include?(raw[key])
+            h[key] = raw[key]
+          elsif %w[roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
             h[key] = (raw[key] == true || raw[key].to_s == 'true' || raw[key] == 1)
           elsif key == 'stair_structure'
             raise ArgumentError, 'Stair construction must be waist or open' unless %w[waist open].include?(raw[key])
