@@ -79,13 +79,13 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
+        next if %w[rates wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       validated = Core.settings(settings.merge(patch))
@@ -319,6 +319,9 @@ module SSDigitalLab
           data['roof_type'] = s['roof_type']
           data['infill'] = s['roof_infill']
           data['infill_thickness'] = s['roof_infill_thickness']
+          %w[gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts].each do |key|
+            data[key] = s[key]
+          end
         end
       elsif kind == 'column'
         transform = Geom::Transformation.new(Geom::Point3d.new(p1.x, p1.y, level['elevation'].mm))
@@ -811,7 +814,11 @@ module SSDigitalLab
         raise 'Roof pitch must be less than 80 degrees' if data['pitch'].to_f >= 80
         Core.number(data['overhang'], 'overhang', min: 0, allow_zero: true)
         Core.number(data['eave_offset'], 'eave_offset', min: 0, allow_zero: true)
-        raise 'Roof type must be gable or hip' unless %w[gable hip].include?(data.fetch('roof_type', 'gable'))
+        raise 'Unknown roof type' unless %w[gable hip shed awning flat butterfly saltbox].include?(data.fetch('roof_type', 'gable'))
+        raise 'Invalid truss type' unless %w[king_post fink].include?(data.fetch('truss_style', 'king_post'))
+        %w[gutter_width gutter_depth downpipe_diameter downpipe_drop truss_spacing truss_member].each do |field|
+          Core.number(data[field], field) if data.key?(field)
+        end
         Core.number(data.fetch('infill_thickness', 150.0), 'infill thickness', min: 0)
       end
       if kind == 'stair'
@@ -845,13 +852,13 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment exterior_side roof_type style structure handrail].include?(key)
+        if %w[name code notes level_id alignment exterior_side roof_type truss_style style structure handrail].include?(key)
           data[key] = value.to_s[0, 250]
-        elsif %w[infill cut_slab].include?(key)
+        elsif %w[infill cut_slab gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
           data[key] = !!value
         elsif key == 'steps'
           data[key] = Core.number(value, 'steps', min: 0, max: 100).to_i
