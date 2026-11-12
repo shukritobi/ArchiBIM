@@ -511,6 +511,120 @@ module SSDigitalLab
         end
       end
 
+      # Conceptual steel profiles. Structural sizing and connections need review.
+      def self.steel_member(parent, a, b, size, mat)
+        v = Geom::Vector3d.new((b[0]-a[0]).mm, (b[1]-a[1]).mm, (b[2]-a[2]).mm)
+        length = v.length.to_mm
+        return if length < 1.0
+        xaxis = v.normalize
+        reference = xaxis.parallel?(Y_AXIS) ? X_AXIS : Y_AXIS
+        zaxis = xaxis.cross(reference).normalize
+        yaxis = zaxis.cross(xaxis).normalize
+        g = parent.entities.add_group
+        g.name = 'Conceptual SHS steel member'
+        g.transformation = Geom::Transformation.axes(point(*a), xaxis, yaxis, zaxis)
+        box(g.entities, 0, length, -size/2.0, size/2.0, -size/2.0, size/2.0)
+        g.material = mat
+      end
+
+      # Parametric square-gutter trough along a world-aligned rectangle eave.
+      # Drainage sizing/fall is deliberately NOT represented as engineered.
+      def self.roof_drainage(entities, data, model, mode, x0, x1, y0, y1, xm, base)
+        return unless data.fetch('gutter_enabled', false)
+        width = data.fetch('gutter_width', 150.0).to_f
+        depth = data.fetch('gutter_depth', 100.0).to_f
+        return if width < 20 || depth < 20
+        walls = case mode
+                when 'gable', 'saltbox' then [[:along_y, x0], [:along_y, x1]]
+                when 'butterfly' then [[:along_y, xm]]
+                when 'shed', 'awning', 'flat' then [[:along_y, x0]]
+                else [[:along_y, x0], [:along_y, x1], [:along_x, y0], [:along_x, y1]]
+                end
+        finish = material(model, 'frame')
+        lvl = (ArchiBIM.levels.find { |l| l['id'] == data['level_id'] } || {})['name'] || 'Roof'
+        tag = ArchiBIM.ensure_tag("AB | Roof drainage | #{lvl}")
+        walls.each do |direction, position|
+          child = entities.add_group
+          child.name = 'Gutter | preliminary box profile'
+          child.layer = tag
+          t = [3.0, width/8.0, depth/8.0].min
+          ztop = base + (mode == 'butterfly' ? 0 : 0)
+          if direction == :along_y
+            # Lower edge at the eave, trough open to sky.
+            box(child.entities, position-width/2, position+width/2, y0, y1,
+                ztop-depth, ztop-depth+t)
+            box(child.entities, position-width/2, position-width/2+t, y0, y1,
+                ztop-depth+t, ztop)
+            box(child.entities, position+width/2-t, position+width/2, y0, y1,
+                ztop-depth+t, ztop)
+            outlet = [position, y1-width/2, ztop-depth]
+          else
+            box(child.entities, x0, x1, position-width/2, position+width/2,
+                ztop-depth, ztop-depth+t)
+            box(child.entities, x0, x1, position-width/2, position-width/2+t,
+                ztop-depth+t, ztop)
+            box(child.entities, x0, x1, position+width/2-t, position+width/2,
+                ztop-depth+t, ztop)
+            outlet = [x1-width/2, position, ztop-depth]
+          end
+          child.material = finish
+          next unless data.fetch('downpipe_enabled', false)
+          dia = data.fetch('downpipe_diameter', 75.0).to_f
+          drop = data.fetch('downpipe_drop', 3000.0).to_f
+          next unless dia > 0 && drop > 0
+          pipe = entities.add_group
+          pipe.name = 'Downpipe | conceptual circular profile'
+          pipe.layer = tag
+          circle = pipe.entities.add_circle(point(*outlet), Z_AXIS, (dia/2.0).mm, 16)
+          face = pipe.entities.add_face(circle)
+          face.pushpull(-drop.mm) if face
+          pipe.material = finish
+        end
+      end
+
+      def self.roof_steelwork(entities, data, model, mode, width, depth, overhang, base, ridge)
+        finish = material(model, 'frame')
+        lvl = (ArchiBIM.levels.find { |l| l['id'] == data['level_id'] } || {})['name'] || 'Roof'
+        tag = ArchiBIM.ensure_tag("AB | Steel roof structure | #{lvl}")
+        member = data.fetch('truss_member', 75.0).to_f
+        return unless member > 0
+        if mode == 'awning'
+          child = entities.add_group
+          child.name = 'Steel awning framing | preliminary'
+          child.layer = tag
+          height0 = base + width * Math.tan(data['pitch'].to_f * Math::PI / 180)
+          [0.0, depth].each do |y|
+            steel_member(child, [0, y, base-100], [width, y, height0-100], member, finish)
+            if data.fetch('awning_posts', true)
+              steel_member(child, [width, y, 0], [width, y, height0-100], member, finish)
+            end
+          end
+          steel_member(child, [width, 0, height0-100], [width, depth, height0-100], member, finish)
+        elsif data.fetch('truss_enabled', false) && %w[gable saltbox].include?(mode)
+          spacing = [data.fetch('truss_spacing', 1200.0).to_f, 100.0].max
+          count = [[(depth/spacing).ceil, 1].max, 100].min
+          (0..count).each do |i|
+            y = depth * i / count.to_f
+            truss = entities.add_group
+            truss.name = "Roof truss #{i + 1} (#{data.fetch('truss_style', 'king_post')})"
+            truss.layer = tag
+            peakx = mode == 'saltbox' ? width*0.35 : width/2.0
+            apex = [peakx, y, ridge-data['thickness'].to_f-100]
+            left = [0, y, base-100]
+            right = [width, y, base-100]
+            steel_member(truss, left, right, member, finish)
+            steel_member(truss, left, apex, member, finish)
+            steel_member(truss, apex, right, member, finish)
+            if data.fetch('truss_style', 'king_post') == 'fink'
+              steel_member(truss, apex, [width*0.25,y,base-100], member, finish)
+              steel_member(truss, apex, [width*0.75,y,base-100], member, finish)
+            else
+              steel_member(truss, apex, [peakx,y,base-100], member, finish)
+            end
+          end
+        end
+      end
+
       def self.roof(entities, data, model)
         pitch = data['pitch'].to_f * Math::PI / 180.0
         o = data['overhang'].to_f
@@ -521,6 +635,34 @@ module SSDigitalLab
         x0, x1, y0, y1 = -o, width + o, -o, depth + o
         xm, ym = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         mode = data.fetch('roof_type', 'gable')
+        if %w[shed awning flat butterfly saltbox].include?(mode)
+          rise = Math.tan(pitch)
+          ridge_height = base
+          if mode == 'butterfly'
+            ridge_height = base + (width / 2.0 + o) * rise
+            polys = [
+              [[x0,y0,ridge_height],[xm,y0,base],[xm,y1,base],[x0,y1,ridge_height]],
+              [[xm,y0,base],[x1,y0,ridge_height],[x1,y1,ridge_height],[xm,y1,base]]
+            ]
+          elsif mode == 'saltbox'
+            pivot = x0 + (x1-x0)*0.35
+            ridge_height = base + (pivot-x0)*rise
+            polys = [
+              [[x0,y0,base],[pivot,y0,ridge_height],[pivot,y1,ridge_height],[x0,y1,base]],
+              [[pivot,y0,ridge_height],[x1,y0,base],[x1,y1,base],[pivot,y1,ridge_height]]
+            ]
+          else
+            roof_rise = mode == 'flat' ? [rise, Math.tan(3.0*Math::PI/180.0)].min : rise
+            ridge_height = base + (x1-x0)*roof_rise
+            polys = [
+              [[x0,y0,base],[x1,y0,ridge_height],[x1,y1,ridge_height],[x0,y1,base]]
+            ]
+          end
+          polys.each { |poly| roof_panel(entities, poly, thickness) }
+          roof_steelwork(entities, data, model, mode, width, depth, o, base, ridge_height)
+          roof_drainage(entities, data, model, mode, x0, x1, y0, y1, xm, base)
+          return
+        end
         if mode == 'hip'
           w, d = x1 - x0, y1 - y0
           peak = base + [w, d].min / 2.0 * Math.tan(pitch)
@@ -570,6 +712,13 @@ module SSDigitalLab
             end
           end
         end
+        ridge_height = if mode == 'gable'
+                         base + (width / 2.0 + o)*Math.tan(pitch)
+                       else
+                         base + [x1-x0, y1-y0].min / 2.0 * Math.tan(pitch)
+                       end
+        roof_steelwork(entities, data, model, mode, width, depth, o, base, ridge_height)
+        roof_drainage(entities, data, model, mode, x0, x1, y0, y1, xm, base)
       end
 
       def self.classify(group, ifc_class)
