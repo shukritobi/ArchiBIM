@@ -205,7 +205,18 @@ module SSDigitalLab
         hinge_left = opening.fetch('hinge', 'left') != 'right'
         swing_sign = opening.fetch('swing', 'in') == 'out' ? -1.0 : 1.0
         label = (ArchiBIM.levels.find { |l| l['id'] == wall['level_id'] } || {})['name'] || 'Unknown'
-        if opening['kind'] == 'sliding_door'
+        if Core.leafless_door?(opening)
+          # Passage without a frame or leaf: dashed plan reveal/soffit
+          # rectangle follows actual wall reference-line face offsets.
+          tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Open Passage | #{label}", dashed: true)
+          plan = child.entities.add_group
+          plan.name = 'Open passage | dashed plan reveal'
+          plan.layer = tag
+          z_cut = sill + [height / 2.0, 1200.0].min
+          points = [[x, low, z_cut], [x + width, low, z_cut],
+                    [x + width, high, z_cut], [x, high, z_cut], [x, low, z_cut]]
+          symbol_polyline(plan, tag, points)
+        elsif opening['kind'] == 'sliding_door'
           plan, dashed = symbol_group(child, wall, opening, model, 'plan')
           y0,y1 = frame_bounds(wall,opening)
           count = [[opening.fetch('panels',2).to_i,2].max,4].min
@@ -244,6 +255,17 @@ module SSDigitalLab
             px = x + width * index / panes
             symbol_edge(plan, plan_tag, [px, low, sill + 25], [px, high, sill + 25])
           end
+        end
+        if Core.leafless_door?(opening)
+          tag = ArchiBIM.ensure_tag("AB | 2D | Elevation | Open Passage | #{label}", dashed: true)
+          elev = child.entities.add_group
+          elev.name = 'Open passage | dashed elevation opening'
+          elev.layer = tag
+          y = high + 1.0
+          symbol_polyline(elev, tag, [[x,y,sill],[x+width,y,sill],
+                                      [x+width,y,sill+height],[x,y,sill+height],
+                                      [x,y,sill]])
+          return
         end
         elev, dashed = symbol_group(child, wall, opening, model, 'elevation')
         # Project the symbolic vee directly onto the visible glazing / door leaf.
@@ -297,8 +319,17 @@ module SSDigitalLab
         child = wall.fetch('_entities').add_group
         child.name = "#{kind.capitalize} #{opening['id'].to_s[0, 8]}"
         child.set_attribute('SSDigitalLab_ArchiBIM', 'hosted', true)
-        child.set_attribute('SSDigitalLab_ArchiBIM', 'ifc', IFC.fetch(kind))
+        ifc_class = Core.leafless_door?(opening) ? 'IfcOpeningElement' : IFC.fetch(kind)
+        child.set_attribute('SSDigitalLab_ArchiBIM', 'ifc', ifc_class)
         child.set_attribute('SSDigitalLab_ArchiBIM', 'data', JSON.generate(opening))
+        if Core.leafless_door?(opening)
+          # Wall mesh is already voided by Core.wall_cells. Keep no 3D leaf,
+          # jamb frame, threshold, or head profile in the passage.
+          child.name = "Open passage #{opening['id'].to_s[0,8]}"
+          opening_symbols(child, wall, opening, model)
+          classify(child, 'IfcOpeningElement')
+          return child
+        end
         outer = [opening.fetch('outer_frame', kind == 'window' ? 50.0 : 45.0).to_f,
                  width / 6.0, height / 6.0].min
         sash = [opening.fetch('inner_frame', 30.0).to_f, width / 12.0, height / 12.0].min

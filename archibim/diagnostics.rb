@@ -57,8 +57,12 @@ module SSDigitalLab
             t = group.transformation
             { 'id' => data['id'], 'kind' => data['kind'], 'level_id' => data['level_id'],
               'length' => data['length'], 'width' => data['width'], 'height' => data['height'],
-              'scales' => [t.xaxis.length.to_f, t.yaxis.length.to_f, t.zaxis.length.to_f],
+              'scales' => Repair.scale_factors(t),
+              'raw_matrix' => t.to_a.map { |value| value.to_f.round(8) },
+              'repair_needed' => Repair.changed_scale?(t),
+              'world_origin_mm' => [t.origin.x.to_mm, t.origin.y.to_mm, t.origin.z.to_mm],
               'openings' => data.fetch('openings', []).length,
+              'passages' => data.fetch('openings', []).count { |op| Core.leafless_door?(op) },
               'alignment' => data['alignment'],
               'thickness_mm' => data['thickness'],
               'wall_reference_line_world_mm' => (data['kind'] == 'wall' ?

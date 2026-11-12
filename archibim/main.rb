@@ -17,7 +17,7 @@ require_relative 'dxf_export'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.8.0'
+    VERSION = '0.8.1'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -38,6 +38,18 @@ module SSDigitalLab
       def onTransactionAbort(_model); Diagnostics.log('sketchup_abort'); end
       def onTransactionUndo(_model); Diagnostics.log('sketchup_undo'); end
       def onTransactionRedo(_model); Diagnostics.log('sketchup_redo'); end
+    end
+
+    # SketchUp Scale returns to state 0 when its operation ends.
+    # ModelObserver remains a fallback for the completed transaction.
+    class ScaleToolWatcher < Sketchup::ToolsObserver
+      SCALE_TOOL_ID = 21236
+      def onToolStateChanged(tools, _name, tool_id, tool_state)
+        return unless tool_id == SCALE_TOOL_ID && tool_state == 0
+        ArchiBIM.queue_scale_repair(tools.model)
+      rescue StandardError => e
+        Diagnostics.error('scale_tool_observer', e)
+      end
     end
 
     class ModelWatcher < Sketchup::AppObserver
@@ -80,7 +92,7 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join door_leafless wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
@@ -912,6 +924,7 @@ module SSDigitalLab
                   'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in'),
                   'marker' => fields.fetch('marker', 'hinge'),
                   'mount' => fields.fetch('mount', s.fetch("#{kind}_mount", 'center')) }
+      opening['leafless'] = fields.fetch('leafless', s.fetch('door_leafless', false)) == true if kind == 'door'
       if kind == 'sliding_door'
         opening['panels']=s['sliding_door_panels']
         opening['slide_direction']=fields.fetch('slide_direction',s['sliding_door_direction'])
@@ -957,6 +970,7 @@ module SSDigitalLab
         open[key] = mm_from_user(patch[key], key)
       end
       %w[hinge swing marker mount slide_direction].each { |k| open[k] = patch[k] if patch.key?(k) }
+      open['leafless'] = patch['leafless'] == true if open['kind'] == 'door' && patch.key?('leafless')
       %w[outer_frame inner_frame glass_thickness].each do |k|
         open[k] = mm_from_user(patch[k], k) if patch.key?(k) && %w[window sliding_door].include?(open['kind'])
       end
@@ -1047,7 +1061,13 @@ module SSDigitalLab
         Diagnostics.error('auto_scale_unsupported', error)
         nil
       end.compact
-      return if plans.empty?
+      if plans.empty?
+        Diagnostics.log('scale_repair_no_valid_candidates', { detected: targets.length })
+        return
+      end
+      Diagnostics.log('scale_repair_plan', { detected: targets.length,
+        valid: plans.length, rejected: targets.length - plans.length,
+        ids: plans.map { |_, data, _, _| data['id'] } })
       @repairing_scale = true
       model.start_operation('ArchiBIM: Preserve BIM dimensions after Scale', true)
       begin
@@ -1474,7 +1494,9 @@ module SSDigitalLab
       model.selection.add_observer(observer)
       transactions = TransactionWatcher.new
       model.add_observer(transactions)
-      @watched[key] = [observer, transactions]
+      scale_tools = ScaleToolWatcher.new
+      model.tools.add_observer(scale_tools)
+      @watched[key] = [observer, transactions, scale_tools]
     end
 
     def show_panel
