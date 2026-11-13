@@ -42,34 +42,95 @@ module SSDigitalLab
         end
       end
 
+      # Build separate clipped glass panes inside the frame. Unlike the legacy
+      # wall_mesh(glass), this cannot pass through the perimeter, door voids or
+      # vertical mullions. Each exposed panel remains separately identifiable.
       def self.glass_wall_mesh(entities, wall, model)
-        length = wall['length'].to_f
-        height = wall['height'].to_f
+        length = wall.fetch('length').to_f
+        height = wall.fetch('height').to_f
         low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
-        center = (low + high) / 2.0
+        cy = (low + high) / 2.0
         glass = wall.fetch('glass_wall_glass_thickness', 3.0).to_f
         frame = wall.fetch('glass_wall_frame_width', 30.0).to_f
-        glazing = entities.add_group
-        glazing.name = 'Architectural glazing'
-        glazing.material = material(model, 'glass')
-        wall_mesh(glazing.entities,
-                  wall.merge('thickness' => glass, 'alignment' => 'center', 'joins' => {}))
-        glazing.transformation = Geom::Transformation.translation([0, center.mm, 0])
-        soften_coplanar_wall_edges(glazing.entities)
-        return unless wall.fetch('glass_wall_frame', true)
-        raise ArgumentError, 'Wall too short for glazing perimeter' if length <= frame * 2
-        raise ArgumentError, 'Wall too low for glazing perimeter' if height <= frame * 2
-        members = [
-          ['Left jamb', 0.0, frame, 0.0, height],
-          ['Right jamb', length - frame, length, 0.0, height],
-          ['Head', frame, length - frame, height - frame, height],
-          ['Bottom rail', frame, length - frame, 0.0, frame]
-        ]
-        members.each do |label, x0, x1, z0, z1|
+        mullion_width = GlazingLayout.transom_width(wall)
+        framed = wall.fetch('glass_wall_frame', true)
+        panes = GlazingLayout.pane_rectangles(wall)
+        panes.each_with_index do |(x0,x1,z0,z1),index|
+          pane = entities.add_group
+          pane.name = "Clipped fixed glass pane #{index+1}"
+          pane.material = material(model, 'glass')
+          box(pane.entities,x0,x1,cy-glass/2.0,cy+glass/2.0,z0,z1)
+        end
+        if framed
+          raise ArgumentError, 'Glass-wall perimeter frame is wider than the available wall' if length <= frame*2 || height <= frame*2
+          [
+            ['Head rail',frame,length-frame,height-frame,height],
+            ['Left jamb',0,frame,0,height],
+            ['Right jamb',length-frame,length,0,height]
+          ].each do |label,x0,x1,z0,z1|
+            next if label == 'Left jamb' && GlazingLayout.mitered_frame?(wall,'start')
+            next if label == 'Right jamb' && GlazingLayout.mitered_frame?(wall,'end')
+            member = entities.add_group
+            member.name = "Glazing frame | #{label}"
+            member.material = material(model,'frame')
+            box(member.entities,x0,x1,low,high,z0,z1)
+          end
+          # The sill is broken at every ground-level door opening. No aluminium
+          # member can run under a frameless glass door.
+          GlazingLayout.segments_outside_openings(length,wall.fetch('openings',[]),0.0,frame).each do |x0,x1|
+            next unless x1-x0 > 0.01
+            member = entities.add_group
+            member.name='Glazing bottom rail (door voids excluded)'
+            member.material=material(model,'frame')
+            box(member.entities,x0,x1,low,high,0,frame)
+          end
+        end
+        GlazingLayout.active_vertical_stations(length,wall.fetch('openings',[]),
+          wall.fetch('glass_wall_mullions_count',0)).each_with_index do |x,index|
           member = entities.add_group
-          member.name = "Glazing frame | #{label}"
-          member.material = material(model, 'frame')
-          box(member.entities, x0, x1, low, high, z0, z1)
+          member.name = "Vertical mullion #{index+1}"
+          member.material = material(model,'frame')
+          box(member.entities,x-mullion_width/2.0,x+mullion_width/2.0,
+              low,high,framed ? frame : 0.0,framed ? height-frame : height)
+        end
+        GlazingLayout.transom_stations(wall).each do |z|
+          member=entities.add_group
+          member.name="Automatically aligned transom at #{z.round}mm (door head)"
+          member.material=material(model,'frame')
+          # Sitting immediately above door head, not bisecting the glazed door.
+          z1=[z+mullion_width,height-(framed ? frame : 0.0)].min
+          next unless z1>z
+          box(member.entities,framed ? frame : 0.0,
+              length-(framed ? frame : 0.0),low,high,z,z1)
+        end
+        if wall.fetch('glass_wall_partition_above',false)
+          partition_h=wall.fetch('glass_wall_partition_height',900.0).to_f
+          partition_t=wall.fetch('glass_wall_partition_thickness',100.0).to_f
+          if partition_h>0
+            partition=entities.add_group
+            partition.name='Partition Above | solid box-up'
+            partition.material=material(model,'wall')
+            box(partition.entities,0,length,cy-partition_t/2.0,cy+partition_t/2.0,
+                height,height+partition_h)
+            soften_coplanar_wall_edges(partition.entities)
+          end
+        end
+        %w[start end].each do |at|
+          next unless GlazingLayout.mitered_frame?(wall,at)
+          profile = entities.add_group
+          profile.name = "Hollow corner profile | #{at}"
+          profile.material = material(model,'frame')
+          outside = wall['thickness'].to_f
+          skin = wall.fetch('glass_wall_corner_skin',3.0).to_f
+          centre_x = at == 'start' ? 0.0 : length
+          x0,x1 = centre_x-outside/2.0,centre_x+outside/2.0
+          y0,y1 = cy-outside/2.0,cy+outside/2.0
+          # Hollow aluminium profile modelled as four sides rather than a solid.
+          [[x0,x0+skin,y0,y1],[x1-skin,x1,y0,y1],
+           [x0+skin,x1-skin,y0,y0+skin],
+           [x0+skin,x1-skin,y1-skin,y1]].each do |xa,xb,ya,yb|
+            box(profile.entities,xa,xb,ya,yb,0,height)
+          end
         end
       end
 
@@ -127,16 +188,42 @@ module SSDigitalLab
         end
       end
 
+      # Conceptual PT10/PT20 style fittings, guided by Dormakaba/Hafele
+      # catalogues. 164 x 51 mm covers, 5mm each exposed face, Ø15 pivot,
+      # and floor bearing rising only 3mm. Actual selected fitting governs.
       def self.pivot_hinges(child, opening, y, bottom, top, model)
+        left = opening.fetch('hinge','left') != 'right'
         x = opening['offset'].to_f
         w = opening['width'].to_f
-        at = opening.fetch('hinge', 'left') == 'right' ? x + w - 48.0 : x + 48.0
-        hinges = child.entities.add_group
-        hinges.name = 'Floor and ceiling glass pivot hinges'
-        hinges.material = material(model, 'frame')
-        [bottom, top - 38.0].each do |z|
-          clamp = hinges.entities.add_group
-          box(clamp.entities, at - 45, at + 45, y - 25, y + 25, z, z + 38)
+        start_x = left ? x+5.0 : x+w-169.0
+        end_x = start_x+164.0
+        hinge_x = left ? start_x+55.0 : end_x-55.0
+        glass = [opening.fetch('glass_thickness',10.0).to_f,8.0].max
+        fittings = child.entities.add_group
+        fittings.name='Top and bottom pivot patch hardware'
+        fittings.material=material(model,'frame')
+        [[bottom+3.0,bottom+54.0,'Bottom patch'],
+         [top-54.0,top-3.0,'Top patch']].each do |z0,z1,label|
+          [-1,1].each do |side|
+            plate=fittings.entities.add_group
+            plate.name="#{label} | 5mm face cover"
+            y0,y1 = [y+side*glass/2.0,y+side*(glass/2.0+5.0)].minmax
+            box(plate.entities,start_x,end_x,y0,y1,z0,z1)
+          end
+        end
+        # 3mm tall flush pivot bearing at floor (not a chunky floor patch).
+        bearing=fittings.entities.add_group
+        bearing.name='Flush floor pivot bearing | 3mm projection'
+        box(bearing.entities,hinge_x-25.0,hinge_x+25.0,y-25.0,y+25.0,bottom,bottom+3.0)
+        [bottom+3.0,top-15.0].each_with_index do |z,index|
+          pivot=fittings.entities.add_group
+          pivot.name=index.zero? ? 'Lower cylindrical pivot Ø15' : 'Upper cylindrical pivot Ø15'
+          ring=pivot.entities.add_circle(point(hinge_x,y,z),Z_AXIS,7.5.mm,24)
+          face=pivot.entities.add_face(ring)
+          if face
+            face.reverse! if face.normal.dot(Z_AXIS)<0
+            face.pushpull(12.mm)
+          end
         end
       end
 
