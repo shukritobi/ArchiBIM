@@ -414,7 +414,7 @@ module SSDigitalLab
             box(panel.entities, inner_l, inner_r,
                 mid_y - thickness / 2.0, mid_y + thickness / 2.0, inner_b, inner_t)
             panel.material = material(model, style == 'solid' ? 'door' : 'glass')
-            pivot_hinges(child, opening, mid_y, inner_b, inner_t, model) if frameless
+            pivot_hinges(child, opening, mid_y, z, z + height, model) if frameless
             door_hardware(child, opening, model, mid_y, inner_b, inner_t, style)
           end
         else
