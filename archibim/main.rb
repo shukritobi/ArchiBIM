@@ -399,6 +399,29 @@ module SSDigitalLab
         thickness: data['thickness'].to_f, alignment: data.fetch('alignment', 'left') }
     end
 
+    # A glass-wall box-up shares its parent's baseline and graph connections,
+    # but its own thickness/vertical extent governs upper partition mitres.
+    # Custom face offsets also preserve alignment when the lower glass frame
+    # is not centred on the wall reference line.
+    def partition_descriptor(group, data)
+      d = wall_descriptor(group, data)
+      if data.fetch('wall_type', 'brick') == 'glass'
+        return nil unless data.fetch('glass_wall_partition_above', false)
+        glass_low, glass_high = Junctions.side_offsets(data['thickness'], data['alignment'])
+        cy = (glass_low + glass_high) / 2.0
+        t = data.fetch('glass_wall_partition_thickness', 100.0).to_f
+        d[:thickness] = t
+        d[:alignment] = 'center'
+        d[:face_offsets] = [cy - t / 2.0, cy + t / 2.0]
+        d[:z0] = data['height'].to_f
+        d[:z1] = d[:z0] + data.fetch('glass_wall_partition_height', 900.0).to_f
+      else
+        d[:z0] = 0.0
+        d[:z1] = data['height'].to_f
+      end
+      d
+    end
+
     # The graph is stored on the SKP model, not on transient entity IDs.
     # JSON persistence is undoable as part of the caller's model operation.
     def stored_wall_graph
@@ -593,11 +616,23 @@ module SSDigitalLab
                                  allow_join: lambda do |w, at, v, mate_at|
                                    graph.allows_geometry?(w[:id], at, v[:id], mate_at)
                                  end)
+      overlay_descriptors = walls.filter_map { |g, data| partition_descriptor(g, data) }
+      overlay_map = overlay_descriptors.to_h { |w| [w[:id], w] }
+      overlay_caps = Junctions.calculate(overlay_descriptors,
+        allow_join: lambda do |w, at, v, mate_at|
+          overlap = [w[:z1], v[:z1]].min - [w[:z0], v[:z0]].max
+          overlap > Junctions::EPS && graph.allows_geometry?(w[:id], at, v[:id], mate_at)
+        end)
       model = Sketchup.active_model
       walls.each do |g, data|
         new_joins = caps.fetch(data['id'], {})
-        next if data.fetch('joins', {}) == new_joins
+        upper = overlay_map[data['id']] && data.fetch('wall_type', 'brick') == 'glass' &&
+          data.fetch('glass_wall_partition_above', false)
+        new_upper_joins = overlay_caps.fetch(data['id'], {}) if upper
+        next if data.fetch('joins', {}) == new_joins &&
+          (!upper || data.fetch('partition_joins', {}) == new_upper_joins)
         updated = data.merge('joins' => new_joins)
+        updated['partition_joins'] = new_upper_joins if upper
         Geometry.build(g, updated, model)
       end
     end
@@ -996,13 +1031,14 @@ module SSDigitalLab
       elsif kind == 'window'
         opening['operation'] = fields.fetch('operation', s['window_operation'])
         opening['panels'] = Core.window_panel_count(width)
-        opening['hinge'] = fields.fetch('hinge', 'left')
+        opening['hinge'] = fields.fetch('hinge', s['window_hinge'])
         opening['outer_frame'] = s['window_outer_frame']
         opening['inner_frame'] = s['window_inner_frame']
         opening['glass_thickness'] = s['window_glass_thickness']
       end
       raise 'Invalid mounting' unless %w[center exterior interior].include?(opening['mount'])
-      raise 'Invalid hinge' unless %w[left right].include?(opening['hinge'])
+      allowed_hinges = kind == 'window' ? %w[left right top] : %w[left right]
+      raise 'Invalid hinge' unless allowed_hinges.include?(opening['hinge'])
       raise 'Invalid swing direction' unless %w[in out].include?(opening['swing'])
       Core.opening_valid?(opening, original['length'], original['height'], original.fetch('openings', []))
       data = JSON.parse(JSON.generate(original))
@@ -1054,7 +1090,8 @@ module SSDigitalLab
       raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
       raise 'Invalid sliding direction' unless %w[left right].include?(open.fetch('slide_direction','left'))
       raise 'Marker must be hinge or handle' unless %w[hinge handle].include?(open.fetch('marker', 'hinge'))
-      raise 'Invalid hinge' unless %w[left right top].include?(open.fetch('hinge', 'left'))
+      allowed_hinges = open['kind'] == 'window' ? %w[left right top] : %w[left right]
+      raise 'Invalid hinge' unless allowed_hinges.include?(open.fetch('hinge', 'left'))
       raise 'Invalid swing direction' unless %w[in out].include?(open.fetch('swing', 'in'))
       Core.wall_cells(data['length'], data['height'], data['openings'])
       model = Sketchup.active_model
