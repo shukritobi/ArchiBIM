@@ -6,6 +6,7 @@ require 'securerandom'
 require_relative 'core'
 require_relative 'junctions'
 require_relative 'wall_graph'
+require_relative 'wall_junction_repair'
 require_relative 'geometry'
 require_relative 'repair'
 require_relative 'diagnostics'
@@ -22,7 +23,7 @@ require_relative 'dxf_export'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.8.4'
+    VERSION = '0.8.5'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -1451,6 +1452,12 @@ module SSDigitalLab
       dialog.add_action_callback('unlink_entire_wall') { |_ctx| callback_safe { unlink_entire_wall } }
       dialog.add_action_callback('reconnect_wall') { |_ctx| callback_safe { reconnect_wall } }
       dialog.add_action_callback('scan_wall_connections') { |_ctx| callback_safe { scan_wall_connections } }
+      dialog.add_action_callback('heal_wall_junctions_preview') do |_ctx, max_gap|
+        callback_safe { WallJunctionRepair.preview(max_gap_mm: Float(max_gap)) }
+      end
+      dialog.add_action_callback('heal_wall_junctions_apply') do |_ctx, max_gap|
+        callback_safe { WallJunctionRepair.apply(max_gap_mm: Float(max_gap)) }
+      end
       dialog.add_action_callback('convert_lines_to_walls') { |_ctx| callback_safe { convert_selected_lines_to_walls } }
       dialog.add_action_callback('straighten_preview') do |_ctx, mode, tolerance|
         callback_safe { WallStraighten.preview(mode: mode.to_s, tolerance: Float(tolerance)) }
@@ -1600,6 +1607,8 @@ module SSDigitalLab
       tools.add_item('Export testing diagnostics') { callback_safe { export_diagnostics } }
       tools.add_item('Recalculate stair-to-slab cutouts') { callback_safe { m=Sketchup.active_model; m.start_operation('ArchiBIM: Reconcile stair openings',true); begin; sync_stair_slab_openings; m.commit_operation; rescue StandardError; m.abort_operation; raise; end } }
       tools.add_item('Scan wall connections (with feedback)') { callback_safe { scan_wall_connections } }
+      tools.add_item('Preview healing selected wall junctions') { callback_safe { WallJunctionRepair.preview } }
+      tools.add_item('Heal selected wall junctions (max 170mm)') { callback_safe { WallJunctionRepair.apply } }
       tools.add_item('Link existing interior T-junctions') { callback_safe { scan_wall_connections(promote_tees: true) } }
       tools.add_item('Recalculate wall junctions') { callback_safe { Sketchup.active_model.start_operation('ArchiBIM: Rejoin walls', true); rebuild_wall_junctions; Sketchup.active_model.commit_operation } }
       tools.add_separator
