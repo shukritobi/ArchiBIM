@@ -15,6 +15,8 @@ require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'wall_angle_math'
 require_relative 'tools'
+require_relative 'opening_tools_ext'
+require_relative 'opening_schedules'
 require_relative 'wall_draw_inference'
 require_relative 'wall_straighten'
 require_relative 'connected_move'
@@ -101,13 +103,13 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join door_leafless door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above glass_wall_mullions_count glass_wall_corner_at wall_type door_style door_handle window_operation wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels window_hinge auto_repair_scale auto_wall_join door_leafless door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above glass_wall_mullions_count glass_wall_corner_at wall_type door_style door_handle window_operation wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_type door_style door_handle window_operation door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above glass_wall_mullions_count glass_wall_corner_at wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
+        next if %w[rates wall_type door_style door_handle window_operation window_hinge door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above glass_wall_mullions_count glass_wall_corner_at wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       if patch.key?('wall_type')
@@ -973,7 +975,7 @@ module SSDigitalLab
       end
       opening = { 'id' => SecureRandom.uuid, 'kind' => kind, 'offset' => offset,
                   'width' => width, 'height' => height, 'sill' => sill,
-                  'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in'),
+                  'hinge' => fields.fetch('hinge', kind == 'window' ? s['window_hinge'] : 'left'), 'swing' => fields.fetch('swing', 'in'),
                   'marker' => fields.fetch('marker', 'hinge'),
                   'transom' => fields.fetch('transom', kind == 'window' ? s['window_transom'] : s['door_transom']) == true,
                   'transom_height' => mm_from_user(fields.fetch('transom_height', s["#{kind == 'window' ? 'window' : 'door'}_transom_height"]), 'transom height'),
@@ -1038,8 +1040,11 @@ module SSDigitalLab
       %w[outer_frame inner_frame glass_thickness].each do |k|
         open[k] = mm_from_user(patch[k], k) if patch.key?(k) && %w[door window sliding_door].include?(open['kind'])
       end
+      if open['kind']=='window' && patch.key?('width') && !patch.key?('panels')
+        open['panels']=Core.window_panel_count(open['width'])
+      end
       if patch.key?('panels') && %w[window sliding_door].include?(open['kind'])
-        open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: 4, allow_zero: true).to_i
+        open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: open['kind']=='window' ? 20 : 4, allow_zero: true).to_i
       end
       Core.validate_opening_options!(open)
       raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
@@ -1473,6 +1478,25 @@ module SSDigitalLab
 
     def bind_callbacks(dialog)
       dialog.add_action_callback('ready') { |_ctx| callback_safe { watch_selection(Sketchup.active_model); refresh_panel(!selected.nil?) } }
+      dialog.add_action_callback('opening_path_tool') do |_ctx, kind|
+        callback_safe do
+          raise 'Choose door/window/sliding door' unless %w[door window sliding_door].include?(kind)
+          Sketchup.active_model.select_tool(OpeningPathTool.new(kind))
+        end
+      end
+      dialog.add_action_callback('opening_pick_tool') do |_ctx|
+        callback_safe { Sketchup.active_model.select_tool(OpeningSelectionTool.new) }
+      end
+      dialog.add_action_callback('window_preset') do |_ctx, key|
+        callback_safe do
+          p=Core.window_preset(key)
+          save_settings({'window_width'=>p['width'],'window_height'=>p['height'],
+            'window_sill'=>p['sill'],'window_panels'=>p['panels'],'window_hinge'=>p['hinge'] || 'left'})
+        end
+      end
+      dialog.add_action_callback('opening_schedule') do |_ctx|
+        callback_safe { OpeningSchedules.export }
+      end
       dialog.add_action_callback('tool') do |_ctx, type|
         callback_safe do
           Diagnostics.log('tool_started', { kind: type })
@@ -1673,6 +1697,8 @@ module SSDigitalLab
       tools.add_item('Draw wall') { Sketchup.active_model.select_tool(DrawTool.new('wall')) }
       tools.add_item('Preview healing selected wall junctions') { callback_safe { WallJunctionRepair.preview } }
       tools.add_item('Heal selected wall junctions (max 170mm)') { callback_safe { WallJunctionRepair.apply } }
+      tools.add_item('Pick and edit nested door/window') { callback_safe { Sketchup.active_model.select_tool(OpeningSelectionTool.new) } }
+      tools.add_item('Draw window opening between two points') { callback_safe { Sketchup.active_model.select_tool(OpeningPathTool.new('window')) } }
       tools.add_item('Convert connected lines to BIM walls') { callback_safe { convert_selected_lines_to_walls } }
       tools.add_item('Preview straightening selected walls') { callback_safe { WallStraighten.preview } }
       tools.add_item('Straighten selected walls (90°, 5° tolerance)') { callback_safe { WallStraighten.apply } }
