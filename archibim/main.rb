@@ -12,6 +12,7 @@ require_relative 'diagnostics'
 require_relative 'tools'
 require_relative 'connected_move'
 require_relative 'line_wall_adapter'
+require_relative 'scan_audit'
 require_relative 'documentation'
 require_relative 'dxf_export'
 
@@ -1444,6 +1445,18 @@ module SSDigitalLab
       dialog.add_action_callback('reconnect_wall') { |_ctx| callback_safe { reconnect_wall } }
       dialog.add_action_callback('scan_wall_connections') { |_ctx| callback_safe { scan_wall_connections } }
       dialog.add_action_callback('convert_lines_to_walls') { |_ctx| callback_safe { convert_selected_lines_to_walls } }
+      dialog.add_action_callback('audit_ipad_scan') do |_ctx|
+        callback_safe do
+          result = ScanAudit.export
+          if result
+            Diagnostics.log('ipad_scan_audit_export', {
+              containers: result['containers_inspected'], scope: result['scope'],
+              candidates: result['candidates'].size
+            })
+            UI.messagebox("Scan audit saved. Inspected #{result['containers_inspected']} groups/components. No model geometry modified.\n#{result['exported_to']}")
+          end
+        end
+      end
       dialog.add_action_callback('link_existing_tees') { |_ctx| callback_safe { scan_wall_connections(promote_tees: true) } }
       dialog.add_action_callback('move_opening_tool') { |_ctx, id| callback_safe { Sketchup.active_model.select_tool(OpeningMoveTool.new(id.to_s)) } }
       dialog.add_action_callback('reset_camera') { |_ctx| callback_safe { reset_perspective_camera } }
@@ -1541,6 +1554,18 @@ module SSDigitalLab
       end
       tools.add_item('Draw wall') { Sketchup.active_model.select_tool(DrawTool.new('wall')) }
       tools.add_item('Convert connected lines to BIM walls') { callback_safe { convert_selected_lines_to_walls } }
+      tools.add_item('Analyze iPad scan (read-only JSON)') do
+        callback_safe do
+          result = ScanAudit.export
+          if result
+            Diagnostics.log('ipad_scan_audit_export', {
+              containers: result['containers_inspected'], scope: result['scope'],
+              candidates: result['candidates'].size
+            })
+            UI.messagebox("Scan audit saved. Inspected #{result['containers_inspected']} groups/components. No model geometry modified.\n#{result['exported_to']}")
+          end
+        end
+      end
       tools.add_item('Insert door') { Sketchup.active_model.select_tool(OpeningTool.new('door')) }
       tools.add_item('Insert sliding door') { Sketchup.active_model.select_tool(OpeningTool.new('sliding_door')) }
       tools.add_item('Move hosted opening') { Sketchup.active_model.select_tool(OpeningMoveTool.new) }
