@@ -284,7 +284,8 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'unlinkWholeWall':if(confirm('Unlink all joints for this wall? Wall solids and hosted openings are preserved.'))call('unlink_entire_wall');break;
       case 'reconnectWall':call('reconnect_wall');break;
       case 'scanAllWalls':call('scan_wall_connections');break;
-      case 'convertLines':call('convert_lines_to_walls');break;\n      case 'auditScan':call('audit_ipad_scan');break;
+      case 'convertLines':call('convert_lines_to_walls');break;
+      case 'auditScan':call('audit_ipad_scan');break;
       case 'linkAllTees':if(confirm('Make all touching existing interior T-junctions Linked, so interior partitions follow their host walls? This is undoable.'))call('link_existing_tees');break;
       case 'resetCamera':call('reset_camera');break;
       case 'syncStairHoles':call('sync_stair_holes');break;
