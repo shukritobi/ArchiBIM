@@ -165,7 +165,7 @@ module SSDigitalLab
       def onLButtonDown(flags,x,y,view)
         id=find_opening(view,x,y)
         return unless id
-        shift=(flags & COPY_MODIFIER_KEY) != 0 rescue false
+        shift=(flags & CONSTRAIN_MODIFIER_KEY) != 0 rescue false
         @ids=[] unless shift
         if shift && @ids.include?(id)
           @ids.delete(id)
