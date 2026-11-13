@@ -645,8 +645,12 @@ module SSDigitalLab
     def snap_wall_point(point, view, x, y)
       wanted_z = current_level['elevation'].mm
       candidates = []
-      elements.each do |group, data|
-        next unless data['kind'] == 'wall' && data['level_id'] == current_level['id']
+      # Scan files can contain hundreds of thousands of raw mesh entities.
+      # BIM wall creation always writes ROOT model groups. Never traverse the
+      # entire Canvas scan group hierarchy on every mouse move.
+      Sketchup.active_model.entities.grep(Sketchup::Group).each do |group|
+        data = data_for(group)
+        next unless data && data['kind'] == 'wall' && data['level_id'] == current_level['id']
         transform = group.transformation
         a = ORIGIN.transform(transform)
         b = Geom::Point3d.new(data['length'].to_f.mm, 0, 0).transform(transform)
