@@ -1038,7 +1038,7 @@ module SSDigitalLab
         opening['glass_thickness'] = s['window_glass_thickness']
       end
       raise 'Invalid mounting' unless %w[center exterior interior].include?(opening['mount'])
-      allowed_hinges = kind == 'window' ? %w[left right top] : %w[left right]
+      allowed_hinges = kind == 'window' ? %w[left right top bottom] : %w[left right]
       raise 'Invalid hinge' unless allowed_hinges.include?(opening['hinge'])
       raise 'Invalid swing direction' unless %w[in out].include?(opening['swing'])
       Core.opening_valid?(opening, original['length'], original['height'], original.fetch('openings', []))
@@ -1091,7 +1091,7 @@ module SSDigitalLab
       raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
       raise 'Invalid sliding direction' unless %w[left right].include?(open.fetch('slide_direction','left'))
       raise 'Marker must be hinge or handle' unless %w[hinge handle].include?(open.fetch('marker', 'hinge'))
-      allowed_hinges = open['kind'] == 'window' ? %w[left right top] : %w[left right]
+      allowed_hinges = open['kind'] == 'window' ? %w[left right top bottom] : %w[left right]
       raise 'Invalid hinge' unless allowed_hinges.include?(open.fetch('hinge', 'left'))
       raise 'Invalid swing direction' unless %w[in out].include?(open.fetch('swing', 'in'))
       Core.wall_cells(data['length'], data['height'], data['openings'])
