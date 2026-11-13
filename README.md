@@ -67,6 +67,18 @@ Original source edges are **preserved**. All generated walls use the current lev
 ## What's new
 
 <details open>
+<summary><strong>v0.8.6 · Parametric glazing and opening editor (preview)</strong></summary>
+
+- **Brick, partition and glass wall construction** selectable on creation and existing ArchiBIM walls. Brick defaults 150 mm, partition 100 mm, framed glass 50 mm thick and 2100 mm high, with 30 mm perimeter frame and 3 mm glass. Frame can be disabled and glass height customized.
+- **Door construction:** timber/solid, frameless glass with floor/head pivot clamps, or framed glass; lever, round knob or long pull handle.
+- **Windows:** operable casement or fixed glass. Fixed panes omit opening wedges; dynamic menu hides inappropriate hinge/swing inputs. Both doors and windows support optional fixed transom glazing.
+- **Live opening preview:** plan outline floats above the wall's top so it is visible in perspective; hinged door preview includes swing arc and leaf, with Left/Right for hinge and Up/Down for swing.
+- **Clean 3D views:** coplanar wall face subdivision seams softened, 2D elevation/plan symbol tags hidden by default for new generated tags (user may still enable tags for drawings).
+- **Openings tab:** identify individual openings by UUID across multiple walls, highlight the chosen one with a yellow viewport outline, and batch-update compatible parameters with prevalidation and one Undo.
+- **Includes v0.8.5 wall-junction repair** and all earlier QA safeguards. This source feature requires desktop SketchUp 2026 testing; passing CI alone is not acceptance.
+</details>
+
+<details open>
 <summary><strong>v0.8.5 · Explicit wall junction repair and robust 10mm contact tolerance</strong></summary>
 
 - **Fixes false broken corners** caused by double-precision rounding at an exact 10 mm tolerance (`10.000000000001364 mm` was previously rejected).
