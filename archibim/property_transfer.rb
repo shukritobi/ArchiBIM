@@ -157,6 +157,8 @@ module SSDigitalLab
         end
         unless @source
           @source = target
+          Diagnostics.log('eyedropper_source', { 'kind' => @source['kind'],
+            'id' => @source['data']['id'] })
           feedback("Source #{@source['kind']} captured. Click matching targets. Width, sill, offset and host stay unchanged.")
           return
         end
