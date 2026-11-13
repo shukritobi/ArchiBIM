@@ -67,6 +67,17 @@ Original source edges are **preserved**. All generated walls use the current lev
 ## What's new
 
 <details open>
+<summary><strong>v0.8.3 · iPad Scan-to-Design inspection (read-only)</strong></summary>
+
+- **Extensions → ArchiBIM → Analyze iPad scan (read-only JSON)**. Also available beside the connected-lines action in the ArchiBIM Manager.
+- Inventories SketchUp tags (including visibility and folders), nested groups and components, sampled vertical/horizontal/sloping faces, and candidate walls/floors/cabinets/openings.
+- Supports RoomPlan/Canvas output inspection without changing the scanned SKP. Large meshes are explicitly bounded and may return **partial** reports.
+- No scan-to-parametric-BIM converter is claimed yet. The resulting `ArchiBIM_Scan_Audit.json` helps implement and validate that converter against real source geometry.
+- See [Scan-to-BIM architecture and acceptance](docs/SCAN_TO_BIM_RESEARCH_AND_ACCEPTANCE.md).
+
+</details>
+
+<details>
 <summary><strong>v0.8.2 · Native connected-line conversion</strong></summary>
 
 - Draw with **SketchUp Line (L)**, select an edge or bounded face and turn the connected network into native parametric **ArchiBIM walls**.
