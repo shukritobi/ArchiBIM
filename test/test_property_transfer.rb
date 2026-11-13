@@ -97,10 +97,10 @@ class TestPropertyEyedropper < Minitest::Test
     source={'kind'=>'window','id'=>'source','height'=>2000.0,
       'transom'=>true,'transom_height'=>450.0}
     target={'kind'=>'window','id'=>'target','offset'=>0.0,'width'=>900.0,
-      'sill'=>1850.0,'height'=>100.0,'transom'=>false}
+      'sill'=>1900.0,'height'=>100.0,'transom'=>false}
     wall={'height'=>2100.0,'openings'=>[target]}
     patch,notes=P.plan_for_host(source,target,wall)
-    assert_equal 250.0,patch['height']
+    assert_equal 200.0,patch['height']
     assert_equal false,patch['transom']
     assert notes.any?{|n| n.include?('disabled')}
   end
