@@ -106,7 +106,7 @@ module SSDigitalLab
         label = level ? level['name'] : 'Unknown'
         prefix = orientation == 'plan' ? 'AB | 2D | Plan' : 'AB | 2D | Elevation'
         name = "#{prefix} | #{opening['kind'].capitalize} Swing | #{label}"
-        tag = ArchiBIM.ensure_tag(name, dashed: true)
+        tag = hidden_symbol_tag(name, dashed: true)
         group = child.entities.add_group
         group.name = "2D #{orientation.capitalize} Swing"
         group.layer = tag
@@ -139,7 +139,7 @@ module SSDigitalLab
           left = inner_left + cell * index + sash
           right = inner_left + cell * (index + 1) - sash
           bottom = z + outer + sash
-          top = z + height - outer - sash
+          top = z + height - outer - sash - (opening.fetch('transom', false) ? opening.fetch('transom_height',450.0).to_f : 0.0)
           [left, right, bottom, top] if right - left > 5 && top - bottom > 5
         end
       end
@@ -208,7 +208,7 @@ module SSDigitalLab
         if Core.leafless_door?(opening)
           # Passage without a frame or leaf: dashed plan reveal/soffit
           # rectangle follows actual wall reference-line face offsets.
-          tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Open Passage | #{label}", dashed: true)
+          tag = hidden_symbol_tag("AB | 2D | Plan | Open Passage | #{label}", dashed: true)
           plan = child.entities.add_group
           plan.name = 'Open passage | dashed plan reveal'
           plan.layer = tag
@@ -238,13 +238,13 @@ module SSDigitalLab
             [hinge + width * Math.cos(a), y + width * Math.sin(a), z]
           end
           symbol_polyline(plan, dashed, arc)
-          leaf_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Door Leaf | #{label}")
+          leaf_tag = hidden_symbol_tag("AB | 2D | Plan | Door Leaf | #{label}")
           leaf = child.entities.add_group
           leaf.name = 'Door plan leaf (open)'
           leaf.layer = leaf_tag
           symbol_edge(leaf, leaf_tag, [hinge, y, z], arc.last)
         else
-          plan_tag = ArchiBIM.ensure_tag("AB | 2D | Plan | Window | #{label}")
+          plan_tag = hidden_symbol_tag("AB | 2D | Plan | Window | #{label}")
           plan = child.entities.add_group
           plan.name = 'Window plan centreline'
           plan.layer = plan_tag
@@ -257,7 +257,7 @@ module SSDigitalLab
           end
         end
         if Core.leafless_door?(opening)
-          tag = ArchiBIM.ensure_tag("AB | 2D | Elevation | Open Passage | #{label}", dashed: true)
+          tag = hidden_symbol_tag("AB | 2D | Elevation | Open Passage | #{label}", dashed: true)
           elev = child.entities.add_group
           elev.name = 'Open passage | dashed elevation opening'
           elev.layer = tag
@@ -279,6 +279,8 @@ module SSDigitalLab
             px=x+width*i/count
             symbol_edge(elev,dashed,[px,mid_y+25,sill+outer],[px,mid_y+25,sill+height-outer])
           end
+        elsif opening['kind'] == 'window' && opening.fetch('operation','casement') == 'fixed'
+          # Fixed windows have no hinge or opening direction wedge.
         elsif opening['kind'] == 'window'
           glass = opening.fetch('glass_thickness', 3.0).to_f
           panes = window_glass_bays(opening)
@@ -336,17 +338,24 @@ module SSDigitalLab
         glass = opening.fetch('glass_thickness', 3.0).to_f
         y0, y1 = frame_bounds(wall, opening)
         mid_y = (y0 + y1) / 2.0
+        # Frameless glass doors use pivot clamps instead of jambs/head frame.
+        frameless = kind == 'door' && opening.fetch('style','solid') == 'glass_frameless'
         frame_group = child.entities.add_group
         frame_group.name = 'Outer frame'
         frame_group.material = material(model, 'frame')
-        box(frame_group.entities, x, x + outer, y0, y1, z, z + height)
-        box(frame_group.entities, x + width - outer, x + width, y0, y1, z, z + height)
-        box(frame_group.entities, x + outer, x + width - outer, y0, y1,
-            z + height - outer, z + height)
-        box(frame_group.entities, x + outer, x + width - outer, y0, y1,
-            z, z + outer) if kind == 'window'
-        inner_l, inner_r = x + outer, x + width - outer
-        inner_b, inner_t = z + (kind == 'window' ? outer : 8.0), z + height - outer
+        unless frameless
+          box(frame_group.entities, x, x + outer, y0, y1, z, z + height)
+          box(frame_group.entities, x + width - outer, x + width, y0, y1, z, z + height)
+          box(frame_group.entities, x + outer, x + width - outer, y0, y1,
+              z + height - outer, z + height)
+          box(frame_group.entities, x + outer, x + width - outer, y0, y1,
+              z, z + outer) if kind == 'window'
+        end
+        inner_l, inner_r = x + (frameless ? 5.0 : outer), x + width - (frameless ? 5.0 : outer)
+        inner_b, inner_t = z + (kind == 'window' ? outer : 8.0), z + height - (frameless ? 8.0 : outer)
+        transom_top = transom_assembly(child, opening, model, y0, y1, frameless ? 5.0 : outer)
+        inner_t = [inner_t, transom_top].min if transom_top
+
         if kind == 'sliding_door'
           count = [[opening.fetch('panels', 2).to_i, 2].max, 4].min
           pane_width = (inner_r - inner_l) / count
@@ -380,10 +389,16 @@ module SSDigitalLab
           end
         elsif kind == 'door'
           if inner_r > inner_l && inner_t > inner_b
+            style = opening.fetch('style', 'solid')
             panel = child.entities.add_group
-            panel.name = 'Door leaf'
-            box(panel.entities, inner_l, inner_r, mid_y - 20.0, mid_y + 20.0, inner_b, inner_t)
-            panel.material = material(model, 'door')
+            panel.name = style == 'solid' ? 'Door leaf' : 'Glass door leaf'
+            glass = opening.fetch('glass_thickness',3.0).to_f
+            thickness = style == 'solid' ? 40.0 : glass
+            box(panel.entities, inner_l, inner_r,
+                mid_y - thickness / 2.0, mid_y + thickness / 2.0, inner_b, inner_t)
+            panel.material = material(model, style == 'solid' ? 'door' : 'glass')
+            pivot_hinges(child, opening, mid_y, inner_b, inner_t, model) if frameless
+            door_hardware(child, opening, model, mid_y, inner_b, inner_t, style)
           end
         else
           count = [[opening.fetch('panels', 2).to_i, 1].max, 4].min
@@ -775,7 +790,12 @@ module SSDigitalLab
         kind = data['kind']
         case kind
         when 'wall'
-          wall_mesh(group.entities, data)
+          if data.fetch('wall_type','brick') == 'glass'
+            glass_wall_mesh(group.entities, data, model)
+          else
+            wall_mesh(group.entities, data)
+            soften_coplanar_wall_edges(group.entities)
+          end
           wall_data = data.merge('_entities' => group.entities)
           data.fetch('openings', []).each { |o| opening_assembly(wall_data, o, model) }
         when 'slab'
@@ -804,7 +824,7 @@ module SSDigitalLab
           group.entities.add_text(data.fetch('name', 'Room'),
                                   point(150.0, 150.0, 12.0))
         end
-        group.material = material(model, kind)
+        group.material = material(model, kind == 'wall' && data.fetch('wall_type','brick') == 'glass' ? 'glass' : kind)
         # Display consistent AB | identifiers in Outliner without changing BIM data or LayOut tags.
         label = data.fetch('name', kind.capitalize).to_s
         group.name = label.start_with?('AB | ') ? label : "AB | #{label} | #{data['id'].to_s[0,8]}"

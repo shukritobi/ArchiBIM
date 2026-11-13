@@ -256,7 +256,7 @@ module SSDigitalLab
 
       def activate
         Sketchup.status_text = "ArchiBIM #{@kind}: hover on wall to preview, click to insert. " \
-                               'H flips hinge; F reverses swing. Works in Top/Plan.'
+                               'Left=hinge left, Right=hinge right, Up=inward, Down=outward; H/F also work.'
       end
 
       def deactivate(view); view.invalidate if view; end
@@ -337,7 +337,7 @@ module SSDigitalLab
           end
           view.tooltip = "#{@kind.capitalize} preview | #{ArchiBIM.fmt_mm(width)} × " \
                          "#{ArchiBIM.fmt_mm(opening['height'])}, sill #{ArchiBIM.fmt_mm(sill)}" \
-                         " | H: hinge, F: swing"
+                         " | Hinge: #{@hinge} (←/→), Swing: #{@swing} (↑/↓)"
         end
         view.invalidate
       rescue StandardError
@@ -346,11 +346,21 @@ module SSDigitalLab
       end
 
       def onKeyDown(key, _repeat, _flags, view)
-        if key == 72 || key == 104 # H
+        case key
+        when VK_LEFT
+          @hinge = 'left'
+        when VK_RIGHT
+          @hinge = 'right'
+        when VK_UP
+          @swing = 'in'
+        when VK_DOWN
+          @swing = 'out'
+        when 72, 104 # H
           @hinge = @hinge == 'left' ? 'right' : 'left'
-        elsif key == 70 || key == 102 # F
+        when 70, 102 # F
           @swing = @swing == 'in' ? 'out' : 'in'
         end
+        Sketchup.status_text = "ArchiBIM opening: hinge #{@hinge}, swing #{@swing}. Left/Right hinge; Up/Down swing."
         view.invalidate
       end
 
@@ -370,23 +380,47 @@ module SSDigitalLab
         return unless @wall && @hit
         d = ArchiBIM.data_for(@wall)
         return unless d
-        s = ArchiBIM.settings
-        width = s["#{@kind}_width"]; height = s["#{@kind}_height"]
-        sill = @kind == 'window' ? s['window_sill'] : 0.0
+        settings = ArchiBIM.settings
+        width = settings["#{@kind}_width"].to_f
+        height = settings["#{@kind}_height"].to_f
+        sill = @kind == 'window' ? settings['window_sill'].to_f : 0.0
         low, high = Junctions.side_offsets(d['thickness'], d['alignment'])
-        x0 = @hit - width / 2.0; x1 = x0 + width
-        # Preview on cut plane and on wall elevation so the cursor works from
-        # both plan and 3D views, without modifying geometry until click.
-        plan = [[x0, low, 1200.0], [x1, low, 1200.0],
-                [x1, high, 1200.0], [x0, high, 1200.0]]
-        face = [[x0, high + 15.0, sill], [x1, high + 15.0, sill],
-                [x1, high + 15.0, sill + height], [x0, high + 15.0, sill + height]]
-        t = @wall.transformation
-        view.drawing_color = @valid ? Sketchup::Color.new(38, 210, 135) : Sketchup::Color.new(235, 72, 73)
+        x0 = @hit - width / 2.0
+        x1 = x0 + width
+        # Plan preview is intentionally ABOVE the wall's top, not buried at
+        # section height 1200mm where it appears occluded in perspective views.
+        top = d['height'].to_f + 35.0
+        plan = [[x0,low,top],[x1,low,top],[x1,high,top],[x0,high,top]]
+        face_y = high + 22.0
+        face = [[x0,face_y,sill],[x1,face_y,sill],
+                [x1,face_y,sill+height],[x0,face_y,sill+height]]
+        tr = @wall.transformation
+        view.drawing_color = @valid ? Sketchup::Color.new(38,210,135) : Sketchup::Color.new(238,85,76)
         view.line_width = 3
         view.line_stipple = '-'
         [plan, face].each do |poly|
-          view.draw(GL_LINE_LOOP, poly.map { |v| Geometry.point(*v).transform(t) })
+          view.draw(GL_LINE_LOOP,poly.map{|p|Geometry.point(*p).transform(tr)})
+        end
+        if @kind == 'door' && !settings['door_leafless']
+          hinge_left = @hinge == 'left'
+          hinge = hinge_left ? x0 : x1
+          mid_y = (low+high)/2.0
+          initial = hinge_left ? 0.0 : Math::PI
+          sign = @swing == 'out' ? -1.0 : 1.0
+          terminal = initial + (hinge_left ? 1 : -1)*sign*Math::PI/2.0
+          pts = (0..20).map do |i|
+            angle = initial + (terminal-initial)*i/20.0
+            Geometry.point(hinge+width*Math.cos(angle),mid_y+width*Math.sin(angle),top).transform(tr)
+          end
+          view.draw(GL_LINE_STRIP,pts)
+          view.line_stipple = ''
+          view.line_width = 3
+          view.draw(GL_LINES,[Geometry.point(hinge,mid_y,top).transform(tr),pts.last])
+        elsif @kind == 'window'
+          view.line_stipple = ''
+          mid_y=(low+high)/2.0
+          view.draw(GL_LINES,[Geometry.point(x0,mid_y,top).transform(tr),
+                              Geometry.point(x1,mid_y,top).transform(tr)])
         end
         view.line_stipple = ''
       end

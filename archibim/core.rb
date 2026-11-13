@@ -9,6 +9,8 @@ module SSDigitalLab
       ALLOWED_KINDS = %w[wall slab column beam stair room roof footing].freeze
       DEFAULTS = {
         'wall_height' => 3000.0, 'wall_thickness' => 150.0,
+        'wall_type' => 'brick', 'glass_wall_frame' => true,
+        'glass_wall_frame_width' => 30.0, 'glass_wall_glass_thickness' => 3.0,
         'wall_exterior_side' => 'right',
         'auto_repair_scale' => true, 'auto_wall_join' => true,
         'wall_alignment' => 'center', 'column_alignment' => 'center', 'beam_alignment' => 'center',
@@ -27,12 +29,16 @@ module SSDigitalLab
         'beam_width' => 300.0, 'beam_depth' => 450.0, 'beam_offset' => 2400.0,
         'door_width' => 900.0, 'door_height' => 2100.0,
         'door_leafless' => false,
+        'door_style' => 'solid', 'door_handle' => 'lever',
+        'door_transom' => false, 'door_transom_height' => 450.0,
         'door_mount' => 'center', 'window_mount' => 'center',
         'sliding_door_width' => 2400.0, 'sliding_door_height' => 2100.0,
         'sliding_door_mount' => 'center', 'sliding_door_panels' => 2,
         'sliding_door_direction' => 'left',
         'window_width' => 1200.0, 'window_height' => 1200.0, 'window_sill' => 900.0,
-        'window_panels' => 2, 'window_outer_frame' => 50.0,
+        'window_panels' => 2, 'window_operation' => 'casement',
+        'window_transom' => false, 'window_transom_height' => 450.0,
+        'window_outer_frame' => 50.0,
         'window_inner_frame' => 30.0, 'window_glass_thickness' => 3.0,
         'room_add_zone' => true, 'stair_cut_slab' => true, 'stair_hole_clearance' => 50.0,
         'stair_width' => 1100.0, 'stair_steps' => 18, 'stair_rise' => 3000.0,
@@ -72,6 +78,18 @@ module SSDigitalLab
           if %w[wall_alignment column_alignment beam_alignment].include?(key)
             raise ArgumentError, "#{key} must be left, center or right" unless %w[left center right].include?(raw[key])
             h[key] = raw[key]
+          elsif key == 'wall_type'
+            raise ArgumentError, 'Unknown wall type' unless %w[brick partition glass].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'door_style'
+            raise ArgumentError, 'Unknown door type' unless %w[solid glass_frameless glass_framed].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'door_handle'
+            raise ArgumentError, 'Unknown door handle' unless %w[lever round_knob pull].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'window_operation'
+            raise ArgumentError, 'Unknown window operation' unless %w[casement fixed].include?(raw[key])
+            h[key] = raw[key]
           elsif key == 'wall_exterior_side'
             raise ArgumentError, 'Exterior wall side must be left or right' unless %w[left right].include?(raw[key])
             h[key] = raw[key]
@@ -87,7 +105,7 @@ module SSDigitalLab
           elsif key == 'truss_style'
             raise ArgumentError, 'Unknown truss pattern' unless %w[king_post fink].include?(raw[key])
             h[key] = raw[key]
-          elsif %w[auto_wall_join door_leafless roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
+          elsif %w[auto_wall_join door_leafless door_transom window_transom glass_wall_frame roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
             h[key] = (raw[key] == true || raw[key].to_s == 'true' || raw[key] == 1)
           elsif key == 'stair_structure'
             raise ArgumentError, 'Stair construction must be waist or open' unless %w[waist open].include?(raw[key])
@@ -121,6 +139,32 @@ module SSDigitalLab
         h
       end
 
+      WALL_TYPES = {
+        'brick' => { 'thickness' => 150.0, 'height' => 3000.0 },
+        'partition' => { 'thickness' => 100.0, 'height' => 3000.0 },
+        'glass' => { 'thickness' => 50.0, 'height' => 2100.0 }
+      }.freeze
+
+      def self.wall_preset(type)
+        WALL_TYPES.fetch(type.to_s) { raise ArgumentError, 'Invalid wall construction type' }
+      end
+
+      def self.validate_opening_options!(o)
+        kind = o.fetch('kind')
+        raise ArgumentError, 'Unsupported opening type' unless %w[door window sliding_door].include?(kind)
+        if kind == 'door'
+          raise ArgumentError, 'Unknown door style' unless %w[solid glass_frameless glass_framed].include?(o.fetch('style','solid'))
+          raise ArgumentError, 'Unknown door handle' unless %w[lever round_knob pull].include?(o.fetch('handle','lever'))
+        elsif kind == 'window'
+          raise ArgumentError, 'Unknown window operation' unless %w[casement fixed].include?(o.fetch('operation','casement'))
+        end
+        if o.fetch('transom',false)
+          h = number(o.fetch('transom_height',450), 'transom height', min: 0, max: 2000)
+          raise ArgumentError, 'Transom leaves insufficient opening height' unless h + 170.0 < o['height'].to_f
+        end
+        true
+      end
+
       def self.opening_valid?(opening, length, height, others = [])
         x = number(opening['offset'], 'opening offset', min: 0, allow_zero: true)
         w = number(opening['width'], 'opening width', min: 0)
@@ -128,6 +172,7 @@ module SSDigitalLab
         h = number(opening['height'], 'opening height', min: 0)
         raise ArgumentError, 'Opening lies outside the wall length' if x + w > length + EPS
         raise ArgumentError, 'Opening extends beyond the wall top' if z + h > height + EPS
+        validate_opening_options!(opening) if opening.key?('kind')
         others.each do |o|
           next if o['id'].to_s == opening['id'].to_s
           xx = Float(o['offset']); ww = Float(o['width'])
