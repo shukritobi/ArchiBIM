@@ -53,4 +53,63 @@ class TestPropertyEyedropper < Minitest::Test
     assert P.same_object?({'id'=>'a'}, {'id'=>'a'})
     refute P.same_object?({'id'=>'a'}, {'id'=>'b'})
   end
+  def test_height_is_auto_fitted_to_target_wall_without_moving_sill
+    source={'kind'=>'window','id'=>'s','height'=>2100.0,'hinge'=>'top'}
+    target={'kind'=>'window','id'=>'t','height'=>900.0,'width'=>900.0,'offset'=>200.0,
+      'sill'=>1500.0,'hinge'=>'left','transom'=>false}
+    wall={'height'=>3000.0,'openings'=>[target]}
+    patch,notes=P.plan_for_host(source,target,wall)
+    assert_equal 1500.0,patch['height']
+    assert_equal 'top',patch['hinge']
+    refute patch.key?('sill')
+    refute patch.key?('width')
+    assert_match(/Height fitted/,notes.join(' '))
+    assert_equal 900.0,target['height'],'Planning is read-only'
+    assert_equal 2100.0,source['height'],'Source never changes'
+  end
+
+  def test_overlapping_window_above_limits_copied_height
+    source={'kind'=>'window','id'=>'source','height'=>2100.0}
+    target={'kind'=>'window','id'=>'target','offset'=>500.0,'width'=>900.0,
+      'sill'=>900.0,'height'=>500.0}
+    higher={'kind'=>'window','id'=>'high','offset'=>650.0,'width'=>400.0,
+      'sill'=>1600.0,'height'=>600.0}
+    wall={'height'=>3000.0,'openings'=>[target,higher]}
+    patch,notes=P.plan_for_host(source,target,wall)
+    assert_equal 700.0,patch['height']
+    assert notes.any?{|note| note.include?('Height fitted')}
+  end
+
+  def test_transom_is_shrunk_when_height_clips
+    source={'kind'=>'window','id'=>'source','height'=>2000.0,
+      'transom'=>true,'transom_height'=>450.0}
+    target={'kind'=>'window','id'=>'target','offset'=>0.0,'width'=>900.0,
+      'sill'=>1600.0,'height'=>400.0,'transom'=>false}
+    wall={'height'=>2100.0,'openings'=>[target]}
+    patch,notes=P.plan_for_host(source,target,wall)
+    assert_equal 500.0,patch['height']
+    assert_equal true,patch['transom']
+    assert_equal 329.0,patch['transom_height']
+    assert notes.any?{|n| n.include?('Upper fixed glass height fitted')}
+  end
+
+  def test_transom_is_disabled_when_target_too_short
+    source={'kind'=>'window','id'=>'source','height'=>2000.0,
+      'transom'=>true,'transom_height'=>450.0}
+    target={'kind'=>'window','id'=>'target','offset'=>0.0,'width'=>900.0,
+      'sill'=>1850.0,'height'=>100.0,'transom'=>false}
+    wall={'height'=>2100.0,'openings'=>[target]}
+    patch,notes=P.plan_for_host(source,target,wall)
+    assert_equal 250.0,patch['height']
+    assert_equal false,patch['transom']
+    assert notes.any?{|n| n.include?('disabled')}
+  end
+
+  def test_opening_different_type_still_rejected
+    assert_raises(ArgumentError) {
+      P.plan_for_host({'kind'=>'door','height'=>2100}, {'kind'=>'window','height'=>900},
+        {'height'=>3000,'openings'=>[]})
+    }
+  end
+
 end
