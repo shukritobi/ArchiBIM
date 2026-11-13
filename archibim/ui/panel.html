@@ -144,6 +144,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <button class="btn outline" data-action="rebuildAll">Rebuild entire BIM model</button><button class="btn danger" data-action="adoptAll">Adopt Scale for all</button></div>
  </div>
  <div class="panel"><div class="eyebrow">Stair & floor coordination</div><h2>Recalculate stair openings</h2><p class="hint">Synchronises upper floor slab cutouts with all stairs that have Auto-cut enabled. Use after manually moving groups in SketchUp.</p><button class="btn outline full" data-action="syncStairHoles">Sync stairwell holes</button></div>
+ <div class="panel"><div class="eyebrow">UI diagnostics</div><h2>Export interface snapshot</h2>
+ <p class="hint">Exports the actual current HtmlDialog HTML, a JSON layout and overflow report, and an optional SketchUp viewport PNG. Save and attach to QA Lab. Nothing uploads automatically.</p>
+ <button class="btn outline full" data-action="uiSnapshot">Export UI snapshot + layout diagnostics</button>
+ </div>
  <div class="panel"><div class="eyebrow">Session diagnostics</div><h2>Export testing log</h2>
  <p class="hint">Every Create, Edit, Rebuild and error writes an event to a local JSONL log. Export now includes the full wall connection graph, face-offset measurements, exact world reference-line positions, broken links, unmatched wall endpoints, SketchUp version, and recent errors. No screenshots or files are uploaded automatically.</p>
  <button class="btn primary full" data-action="diagnostics">Export ArchiBIM testing log</button></div>
@@ -513,6 +517,25 @@ patch.glass_wall_partition_above=$('p_glass_wall_partition_above')?.checked===tr
       case 'adoptSelected':call('rebuild','selected','adopt_scale');break;
       case 'rebuildAll':if(confirm('Rebuild all BIM elements to their saved dimensions? This is undoable.'))call('rebuild','all','saved');break;
       case 'adoptAll':if(confirm('Adopt native Scale factors for all BIM objects? Backup your model first.'))call('rebuild','all','adopt_scale');break;
+      case 'uiSnapshot':{
+        const panels=[...document.querySelectorAll('.pane > .panel')].map(p=>{
+          const b=p.getBoundingClientRect();return {id:p.id,section:p.closest('section')?.id,
+            title:p.querySelector('h2,h3,.eyebrow')?.textContent?.trim()?.slice(0,110),
+            folded:p.classList.contains('folded'),visible:b.height>0&&b.width>0,
+            width:Math.round(b.width),height:Math.round(b.height),overflowX:p.scrollWidth>p.clientWidth+2};
+        });
+        const controls=[...document.querySelectorAll('input,select,button')].map(e=>{
+          const b=e.getBoundingClientRect();return {id:e.id||null,role:e.tagName,
+            visible:b.height>0&&b.width>0,outsideX:b.width>0&&(b.left<0||b.right>innerWidth),
+            label:e.getAttribute('aria-label')||e.textContent?.trim()?.slice(0,70)};
+        });
+        const report={capturedAt:new Date().toISOString(),version:state.version,
+          size:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio||1},
+          selectedKind:state.selected?.kind,tab,tool:activeTool,
+          panelCount:panels.length,panels,controls,
+          overflowItems:controls.filter(x=>x.outsideX).length};
+        call('ui_snapshot',{report,html:document.documentElement.outerHTML});break;
+      }
       case 'diagnostics':call('diagnostics');break;
       case 'refresh':case 'demo':case 'csv':case 'json':case 'ifc':case 'scene':case 'drawing_set':case 'ai_snapshot':case 'dxf_set':call(a);break;
     }
