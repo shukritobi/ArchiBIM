@@ -41,7 +41,7 @@ module SSDigitalLab
         'sliding_door_mount' => 'center', 'sliding_door_panels' => 2,
         'sliding_door_direction' => 'left',
         'window_width' => 1200.0, 'window_height' => 1200.0, 'window_sill' => 900.0,
-        'window_panels' => 2, 'window_operation' => 'casement',
+        'window_panels' => 2, 'window_operation' => 'casement', 'window_hinge' => 'left',
         'window_transom' => false, 'window_transom_height' => 450.0,
         'window_outer_frame' => 50.0,
         'window_inner_frame' => 30.0, 'window_glass_thickness' => 3.0,
@@ -96,6 +96,9 @@ module SSDigitalLab
             h[key] = raw[key]
           elsif key == 'door_handle'
             raise ArgumentError, 'Unknown door handle' unless %w[lever round_knob pull].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'window_hinge'
+            raise ArgumentError, 'Window hinge must be left/right/top' unless %w[left right top].include?(raw[key])
             h[key] = raw[key]
           elsif key == 'window_operation'
             raise ArgumentError, 'Unknown window operation' unless %w[casement fixed].include?(raw[key])
