@@ -84,7 +84,14 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
    </div>
    <p class="hint">Skews beyond the tolerance are skipped. Use reference mode if the scanned area itself is rotated. Rotating RoomPlan groups can separate existing corners; review joints. Existing BIM connections are checked and unsafe changes roll back. Use Undo to revert.</p>
  </div>
- <div class="panel"><div class="eyebrow">Wall connection defaults</div><label><input id="autoWallJoin" type="checkbox" style="width:auto;margin-right:7px" checked/>Detect and connect touching wall junctions automatically</label><p class="hint">Corner and internal T-junctions now default to Linked. You can set any junction to Join Only or Unlinked in Wall Properties. Legacy Join Only junctions retain their prior setting until you explicitly link them.</p><div class="grid"> <button class="btn outline small" data-action="scanAllWalls">Scan all walls</button> <button class="btn outline small" data-action="linkAllTees">Link existing T-junctions</button></div><div id="graphFeedbackBuild"></div></div>
+ <div class="panel"><div class="eyebrow">Wall connection defaults</div><label><input id="autoWallJoin" type="checkbox" style="width:auto;margin-right:7px" checked/>Detect and connect touching wall junctions automatically</label><p class="hint">Corner and internal T-junctions now default to Linked. You can set any junction to Join Only or Unlinked in Wall Properties. Legacy Join Only junctions retain their prior setting until you explicitly link them.</p><div class="grid"> <button class="btn outline small" data-action="scanAllWalls">Scan all walls</button> <button class="btn outline small" data-action="linkAllTees">Link existing T-junctions</button></div><div class="divider"></div>
+ <div class="eyebrow">Junction repair (explicit)</div>
+ <p class="hint">Select the ArchiBIM walls with missing junctions. Previews a conservative move of a wall endpoint to a neighbouring wall face or corner, with a maximum repair distance. Large/ambiguous gaps are not joined automatically.</p>
+ <div class="grid"><div><label for="healMaxGap">Maximum repair gap</label><input type="text" id="healMaxGap" value="170" inputmode="decimal" aria-label="Maximum repair gap in millimetres"></div>
+ <div style="align-self:end"><button class="btn outline small full" data-action="previewHealWalls">Preview repair</button></div></div>
+ <button class="btn primary full" data-action="applyHealWalls">Heal selected wall junctions</button>
+ <p class="hint">The 655 mm broken corner from your log will be skipped. Existing openings, geometry and wall thickness remain parametric. One Undo reverts all repairs.</p>
+ <div id="graphFeedbackBuild"></div></div>
  <div class="panel"><div class="eyebrow">BIM Scale protection</div><label><input id="autoRepairScale" type="checkbox" style="width:auto;margin-right:7px" checked/>Repair transformed BIM geometry automatically after using SketchUp Scale</label><p class="hint">When the Scale operation finishes, ArchiBIM rebuilds length/plan dimensions while restoring specified wall thickness, window sizes, and heights. This creates a separate undo step. For complex shear, use the diagnostic repair tool instead.</p></div>
  <div class="panel subtle"><h3>Quick start</h3><p class="hint">Generate a 8 × 6 m example with 4 editable walls, a door, a window and a slab.</p><button class="btn outline full" data-action="demo">Create demo model</button></div>
 </section>
@@ -307,6 +314,8 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'unlinkWholeWall':if(confirm('Unlink all joints for this wall? Wall solids and hosted openings are preserved.'))call('unlink_entire_wall');break;
       case 'reconnectWall':call('reconnect_wall');break;
       case 'scanAllWalls':call('scan_wall_connections');break;
+      case 'previewHealWalls':call('heal_wall_junctions_preview',Number(from('healMaxGap')));break;
+      case 'applyHealWalls':if(confirm('Repair only selected wall endpoints within '+from('healMaxGap')+'mm? This may change connected geometry; one Undo can revert.'))call('heal_wall_junctions_apply',Number(from('healMaxGap')));break;
       case 'convertLines':call('convert_lines_to_walls');break;
       case 'auditScan':call('audit_ipad_scan');break;
       case 'referenceStraighten':call('straighten_reference');break;

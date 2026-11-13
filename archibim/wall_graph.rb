@@ -9,6 +9,7 @@ module SSDigitalLab
     class WallGraph
       SCHEMA = 1
       DEFAULT_TOLERANCE = 10.0
+      NUMERIC_EPS = 0.000001 # Geometry units are mm; avoid 10.000000000001mm false negatives.
       MIN_LENGTH = 50.0
       MODES = %w[linked join_only unlinked].freeze
       ENDS = %w[start end].freeze
@@ -77,7 +78,7 @@ module SSDigitalLab
         signed = dot(sub(p, host['start']), normal)
         low, high = face_offsets(host)
         gap = [low - signed, signed - high, 0.0].max
-        return nil if gap > tolerance
+        return nil if gap > tolerance + NUMERIC_EPS
         { 'station_mm' => station, 'signed_offset_mm' => signed,
           'face_low_mm' => low, 'face_high_mm' => high, 'gap_mm' => gap }
       end
@@ -110,7 +111,7 @@ module SSDigitalLab
                 next if endpoint_is_occupied?(other_id, other_at)
                 next if pair_excluded?(id, at, other_id, other_at)
                 separation = dist(p, endpoint(other, other_at))
-                if separation <= tolerance
+                if separation <= tolerance + NUMERIC_EPS
                   angle = cross(unit(sub(wall['end'], wall['start'])), unit(sub(other['end'], other['start']))).abs
                   next if angle < 0.15 # no ambiguous collinear merging yet
                   candidates << [separation, 'corner', other_id, other_at, nil, nil]
@@ -201,7 +202,7 @@ module SSDigitalLab
               contact = tee_contact(w, at, host, tolerance: [tolerance * 20, 250.0].max)
               contact && { 'host_id' => other_id, 'gap_mm' => contact['gap_mm'],
                            'station_mm' => contact['station_mm'],
-                           'status' => contact['gap_mm'] <= tolerance ? 'touching_unlinked' : 'gap_too_large' }
+                           'status' => contact['gap_mm'] <= tolerance + NUMERIC_EPS ? 'touching_unlinked' : 'gap_too_large' }
             end.min_by { |entry| entry['gap_mm'] }
             unmatched << { 'wall_id' => id, 'end' => at,
                            'disabled' => @disabled_walls.include?(id),
@@ -214,6 +215,100 @@ module SSDigitalLab
           'broken_count' => items.count { |r| r['mode'] == 'linked' && !r['touching'] },
           'disabled_walls' => @disabled_walls.dup,
           'connections' => items, 'nearby_unconnected' => unmatched.first(120) }
+      end
+
+      # Preview a conservative, explicitly requested wall-end repair.
+      # Never mutate the supplied inventory. When a gap is greater than the
+      # chosen budget, or multiple hosts are equally plausible, skip it.
+      # A near end-to-end corner is prioritized over a face-to-end T contact.
+      def repair_plan(walls, selected_ids:, max_gap_mm: 170.0)
+        max_gap = Float(max_gap_mm)
+        raise ArgumentError, 'Repair distance must be 1–250mm' unless max_gap.finite? && max_gap.between?(1.0, 250.0)
+        ids = Array(selected_ids).map(&:to_s).uniq & walls.keys
+        raise ArgumentError, 'Select at least one BIM wall to repair' if ids.empty?
+        proposed = deep_copy(walls)
+        changes = []
+        skipped = []
+        touched_ends = {}
+        ids.each do |id|
+          wall = proposed.fetch(id)
+          next if @disabled_walls.include?(id)
+          ENDS.each do |at|
+            p = endpoint(wall, at)
+            already = connections_for(id).select do |link|
+              link['mode'] != 'unlinked' &&
+                ((link['a'] == id && link['a_end'] == at) ||
+                 (link['type'] == 'corner' && link['b'] == id && link['b_end'] == at))
+            end
+            next if already.any? { |link| touching?(link, proposed) }
+            possibilities = []
+            walls.each do |other_id, other|
+              next if other_id == id || other['level_id'] != wall['level_id']
+              next if @disabled_walls.include?(other_id)
+              next if pair_excluded?(id, at, other_id, nil)
+              direction = unit(sub(wall['end'], wall['start']))
+              other_direction = unit(sub(other['end'], other['start']))
+              angle = cross(direction, other_direction).abs
+              next if angle < 0.65 # near-parallel ends must never be auto-healed
+              ENDS.each do |mate_at|
+                next if pair_excluded?(id, at, other_id, mate_at)
+                next if endpoint_is_occupied?(other_id, mate_at)
+                separation = dist(p, endpoint(other, mate_at))
+                if separation > DEFAULT_TOLERANCE + NUMERIC_EPS &&
+                   separation <= max_gap + NUMERIC_EPS
+                  possibilities << { 'type' => 'corner', 'host_id' => other_id,
+                    'host_end' => mate_at, 'new_point' => endpoint(other, mate_at).dup,
+                    'gap_mm' => separation, 'wall_id' => id, 'end' => at }
+                end
+              end
+              dhost = other_direction
+              station = dot(sub(p, other['start']), dhost)
+              setback = [other['thickness'].to_f * 0.25, 25.0].min
+              next unless station > setback && station < length(other) - setback
+              normal = [-dhost[1], dhost[0]]
+              signed = dot(sub(p, other['start']), normal)
+              low, high = face_offsets(other)
+              face = signed < low ? low : (signed > high ? high : nil)
+              next unless face
+              gap = (face - signed).abs
+              next unless gap > DEFAULT_TOLERANCE + NUMERIC_EPS && gap <= max_gap + NUMERIC_EPS
+              destination = add(p, mult(normal, face - signed))
+              possibilities << { 'type' => 'tee', 'host_id' => other_id,
+                'host_end' => nil, 'station_mm' => station,
+                'new_point' => destination, 'gap_mm' => gap,
+                'wall_id' => id, 'end' => at }
+            end
+            possibilities.sort_by! { |item| [item['gap_mm'], item['type'] == 'corner' ? 0 : 1] }
+            if possibilities.empty?
+              skipped << { 'wall_id' => id, 'end' => at, 'reason' => 'no_safe_nearby_host' }
+              next
+            end
+            if possibilities.size > 1 && (possibilities[1]['gap_mm'] - possibilities[0]['gap_mm']).abs <= 5.0
+              skipped << { 'wall_id' => id, 'end' => at, 'reason' => 'ambiguous_hosts' }
+              next
+            end
+            chosen = possibilities.first
+            # A currently linked endpoint must not jump to an unrelated host.
+            if already.any? && !already.any? { |link| link['a'] == chosen['host_id'] || link['b'] == chosen['host_id'] }
+              skipped << { 'wall_id' => id, 'end' => at, 'reason' => 'existing_link_to_other_host' }
+              next
+            end
+            next if touched_ends[[id, at]]
+            wall[at] = chosen['new_point'].dup
+            touched_ends[[id, at]] = true
+            changes << chosen
+          end
+        end
+        changed_ids = changes.map { |item| item['wall_id'] }.uniq
+        changed_ids.each do |id|
+          original, newer = walls.fetch(id), proposed.fetch(id)
+          raise ArgumentError, 'Healing would create a zero-length wall' unless length(newer) >= MIN_LENGTH
+          newer['length'] = length(newer)
+          newer['openings'] = reanchor_openings(original, newer)
+        end
+        { 'walls' => proposed, 'changes' => changes,
+          'changed' => changed_ids, 'skipped' => skipped,
+          'max_gap_mm' => max_gap }
       end
 
       # Do not convert graph edges to mesh joins unless permission is active.
@@ -308,7 +403,7 @@ module SSDigitalLab
         a, b = walls[r['a']], walls[r['b']]
         return false unless a && b && a['level_id'] == b['level_id']
         if r['type'] == 'corner'
-          dist(endpoint(a, r['a_end']), endpoint(b, r['b_end'])) <= tolerance
+          dist(endpoint(a, r['a_end']), endpoint(b, r['b_end'])) <= tolerance + NUMERIC_EPS
         else
           !!tee_contact(a, r['a_end'], b, tolerance: tolerance)
         end
