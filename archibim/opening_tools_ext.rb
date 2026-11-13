@@ -73,7 +73,7 @@ module SSDigitalLab
         width=(@hit-@start_x).abs
         offset=[@hit,@start_x].min
         ArchiBIM.place_opening(@wall,@kind,offset+width/2.0,
-          {'width'=>width,'offset'=>offset,'hinge'=>@kind=='window' ? ArchiBIM.settings.fetch('window_hinge','left') : @hinge,
+          {'width'=>width,'offset'=>offset,'hinge'=>@hinge,
            'swing'=>@swing})
         @start_x=nil;@start_wall=nil;@anchor=nil
         Sketchup.status_text='Opening created. Click first point to begin another.'
@@ -96,7 +96,7 @@ module SSDigitalLab
         raise 'Width crosses wall end' if @start_x+width>wall['length'].to_f+0.01
         ArchiBIM.place_opening(@start_wall,@kind,@start_x+width/2.0,
           {'width'=>width,'offset'=>@start_x,
-           'hinge'=>@kind=='window' ? ArchiBIM.settings.fetch('window_hinge','left') : @hinge})
+           'hinge'=>@hinge})
         @start_x=nil;@start_wall=nil;@anchor=nil
         view.invalidate
       rescue StandardError => error

@@ -151,6 +151,18 @@ module SSDigitalLab
         end
       end
 
+      # Pure coordinate helper: the top/bottom window indicator ALWAYS points
+      # vertically. The selected hinge selects the upper/lower apex, while
+      # the marker mode determines whether the apex points at hinge or handle.
+      def self.vertical_hinge_marker_segments(left, right, min_z, max_z, hinge, marker = 'hinge')
+        return [] unless %w[top bottom].include?(hinge)
+        apex = hinge == 'top' ? max_z : min_z
+        edge = hinge == 'top' ? min_z : max_z
+        apex, edge = edge, apex if marker == 'handle'
+        mid = (left + right) / 2.0
+        [[[left, edge], [mid, apex]], [[mid, apex], [right, edge]]]
+      end
+
       def self.frame_bounds(wall, opening)
         low, high = Junctions.side_offsets(wall['thickness'], wall['alignment'])
         depth = [high - low, 65.0].min
@@ -298,12 +310,11 @@ module SSDigitalLab
           [-1.0,1.0].each do |side|
             y=mid_y+side*(glass/2.0+0.55)
             panes.each_with_index do |(left,right,min_z,max_z),index|
-              if opening.fetch('hinge','left') == 'top'
-                mid_x=(left+right)/2.0
-                apex_z=marker=='hinge' ? max_z : min_z
-                edge_z=marker=='hinge' ? min_z : max_z
-                symbol_edge(elev,dashed,[left,y,edge_z],[mid_x,y,apex_z])
-                symbol_edge(elev,dashed,[mid_x,y,apex_z],[right,y,edge_z])
+              if %w[top bottom].include?(opening.fetch('hinge','left'))
+                vertical_hinge_marker_segments(left,right,min_z,max_z,
+                  opening['hinge'],marker).each do |a,b|
+                  symbol_edge(elev,dashed,[a[0],y,a[1]],[b[0],y,b[1]])
+                end
                 next
               end
               hinge_left_at=panes.length == 1 ? opening.fetch('hinge','left') != 'right' :

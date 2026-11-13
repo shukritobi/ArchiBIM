@@ -108,6 +108,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 <section class="pane" id="pane-properties">
  <div class="panel subtle"><div class="eyebrow">NEW · Copy BIM properties</div>
  <button class="btn primary full" data-action="propertyEyedropper">Eyedropper · Pick source, then target</button>
+ <p id="eyedropperFeedback" class="hint" role="status" aria-live="polite">After starting, click the source window/door/wall in SketchUp, then matching targets. Press R to change the source; Esc to finish.</p>
  <p class="hint">Same element type only. Copies height and compatible construction settings while preserving the target width, length, position, sill, host, existing openings and identity. Click multiple targets or Esc to exit.</p></div>
  <div id="inspector"></div>
 </section>
@@ -135,7 +136,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
      <div><label>Height (optional)</label><input id="bulk_height" placeholder="Keep height" type="text"></div>
      <div><label>Sill (optional)</label><input id="bulk_sill" placeholder="Keep sill" type="text"></div>
      <div><label>Upper glass height (optional)</label><input id="bulk_transom_height" placeholder="Keep height" type="text"></div>
-     <div><label>Hinge</label><select id="bulk_hinge"><option value="">Keep unchanged</option><option value="left">Left</option><option value="right">Right</option></select></div>
+     <div><label>Hinge (Top/Bottom windows only)</label><select id="bulk_hinge"><option value="">Keep unchanged</option><option value="left">Left</option><option value="right">Right</option><option value="top">Top hung</option><option value="bottom">Bottom hung</option></select></div>
      <div><label>Swing</label><select id="bulk_swing"><option value="">Keep unchanged</option><option value="in">Inward</option><option value="out">Outward</option></select></div>
      <div><label>Door style</label><select id="bulk_style"><option value="">Keep unchanged</option><option value="solid">Solid</option><option value="glass_frameless">Glass: floor / head pivot</option><option value="glass_framed">Glass: framed door</option></select></div>
      <div><label>Door hardware</label><select id="bulk_handle"><option value="">Keep unchanged</option><option value="lever">Lever</option><option value="round_knob">Round knob</option><option value="pull">Vertical pull</option></select></div>
@@ -175,7 +176,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <div class="panel"><div class="eyebrow">Proportional plan resizing</div><h2>Resize BIM footprint</h2><div class="grid"><div><label for="footprintPercent">Plan scale (%)</label><input type="number" min="5" max="500" step="any" id="footprintPercent" value="80"></div><div style="align-self:end"><button class="btn outline full" data-action="resizeFootprint">Resize footprint</button></div></div><p class="hint">Changes wall runs, footprint and host positions while keeping wall thickness, door/window sizes and element heights. Test on a copy first. This is an explicit parametric command, not automatic interception of SketchUp's native Scale tool.</p></div>
  <div class="notice">Automatic two-wall miters and single-branch T-cuts are preliminary. Multi-way joins, dissimilar-level joins, true family types and full IFC interoperability require further development and desktop testing.</div>
 </section>
-<div class="footer">SS DIGITAL LAB · ARCHIBIM v0.8.7</div>
+<div class="footer">SS DIGITAL LAB · ARCHIBIM v0.8.9</div>
 </main>
 <script>
 (function(){
@@ -237,7 +238,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     doorStyles:[['solid','Solid / timber leaf'],['glass_frameless','Frameless glass with top/bottom pivots'],['glass_framed','Glass leaf with full door frame']],
     doorHandles:[['lever','Lever (default)'],['round_knob','Round knob'],['pull','Long vertical pull handle']],
     windowOps:[['casement','Casement'],['fixed','Fixed: cannot open']],
-    windowHinges:[['left','Left'],['right','Right'],['top','Top hung']],
+    windowHinges:[['left','Left-hung'],['right','Right-hung'],['top','Top-hung (apex UP)'],['bottom','Bottom-hung (apex DOWN)']],
     side:[['right','Right side of drawing direction'],['left','Left side of drawing direction']],
     mount:[['center','Centred within wall'],['exterior','Flush exterior wall face'],['interior','Flush interior wall face']],
     slideDir:[['left','Slide toward left'],['right','Slide toward right']],
@@ -346,8 +347,8 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
           ${o.kind==='door'?choose(`o_${o.id}_handle`,'Handle hardware',choices.doorHandles,o.handle||'lever'):''}
           ${o.kind==='window'?choose(`o_${o.id}_operation`,'Window operation',choices.windowOps,o.operation||'casement'):''}
           <div class="opening-swing-options" data-opening="${html(o.id)}" style="${o.kind==='sliding_door'||(o.kind==='door'&&o.leafless===true)||(o.kind==='window'&&o.operation==='fixed')?'display:none':''}">
-            ${choose(`o_${o.id}_hinge`,'Hinge position',[['left','Left'],['right','Right']],o.hinge||'left')}
-            ${choose(`o_${o.id}_swing`,'Door swing',[['in','Inward'],['out','Outward']],o.swing||'in')}
+            ${choose(`o_${o.id}_hinge`,'Hinge position',o.kind==='window'?choices.windowHinges:[['left','Left'],['right','Right']],o.hinge||'left')}
+            ${choose(`o_${o.id}_swing`,o.kind==='window'?'Window opening direction':'Door swing',[['in','Inward'],['out','Outward']],o.swing||'in')}
             ${choose(`o_${o.id}_marker`,'Elevation marker points to',[['hinge','Hinge'],['handle','Handle']],o.marker||'hinge')}
           </div>
           ${o.kind==='sliding_door'?choose(`o_${o.id}_slide_direction`,'Slide toward',choices.slideDir,o.slide_direction||'left'):''}
@@ -440,7 +441,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const content=item?`<div class="notice" style="margin-top:10px"><b>Wall scan · ${html(item.at||'')}</b><p>${html(item.message)}</p>${item.report?`<p class="hint">${html(JSON.stringify(item.report))}</p>`:''}</div>`:'';
     ['graphFeedbackBuild','graphFeedbackSelected','graphFeedbackTop'].forEach(id=>{const el=$(id);if(el)el.innerHTML=content;});
   }
-  window.ArchiBIM={setOpeningSelection(ids){selectedOpeningIds.clear();ids.forEach(id=>selectedOpeningIds.add(id));showTab('openings');renderBulkOpenings();announce(ids.length+' hosted openings selected in model.');},receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}installFolds();}};
+  window.ArchiBIM={eyedropperStatus(message){const box=$('eyedropperFeedback');if(box)box.textContent=message;announce(message);showTab('properties');},setOpeningSelection(ids){selectedOpeningIds.clear();ids.forEach(id=>selectedOpeningIds.add(id));showTab('openings');renderBulkOpenings();announce(ids.length+' hosted openings selected in model.');},receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}installFolds();}};
   $('toolSearch').addEventListener('input',e=>{
     const q=e.target.value.toLowerCase();
     document.querySelectorAll('#toolPicker button.tool').forEach(el=>{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';});

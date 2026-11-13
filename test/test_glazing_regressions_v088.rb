@@ -41,6 +41,6 @@ class TestGlazingRegressionsV088 < Minitest::Test
     text=File.read(File.expand_path('../archibim/geometry.rb',__dir__))
     refute_match(/hinge_left_at\s*=\s*!hinge_left_at\s+if\s+side\.negative\?/,text)
     refute_match(/point_left\s*=\s*!point_left\s+if\s+side\.negative\?/,text)
-    assert_includes text, "apex_z=marker=='hinge' ? max_z : min_z"
+    assert_includes text, "vertical_hinge_marker_segments(left,right,min_z,max_z,"
   end
 end
