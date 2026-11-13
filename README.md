@@ -67,6 +67,19 @@ Original source edges are **preserved**. All generated walls use the current lev
 ## What's new
 
 <details open>
+<summary><strong>v0.8.7 · Glass wall detailing, opening tools and compact BIM UI</strong></summary>
+
+- Clipped glazing panes stop within aluminium frames. Bottom rails skip glass door voids; optional equal mullions, auto door-head transom, 50mm hollow corner profiles and partition above.
+- Frameless glass door: conceptual 164×51mm patch fittings, 5mm face covers and 3mm floor bearing; new glass doors default to 10mm leaf glass. Real products require manufacturer confirmation.
+- More realistic cylindrical L lever, knob and pull. Door/window elevation markers mirror on both sides.
+- Draw doors/windows between two picked wall points; pick hosted openings via SketchUp viewport and Shift-select multiples; top-hung toilet and narrow tall window presets. New window bays target ≤600mm; transoms ≤1200mm.
+- Export marked door/window schedule CSV; manager collapsible panels, tool filter and local UI diagnostic HTML/JSON/PNG bundle.
+- **Not yet solved:** unrelated 45° wall miter junctions; polygon slabs with 50mm recessed wet areas and line-based floor finish zones. Tracked for the next QA cycle.
+- Real SketchUp 2026 QA still required. The CI build does not establish physical hardware or joinery acceptance.
+
+</details>
+
+<details open>
 <summary><strong>v0.8.6 · Parametric glazing and opening editor (preview)</strong></summary>
 
 - **Brick, partition and glass wall construction** selectable on creation and existing ArchiBIM walls. Brick defaults 150 mm, partition 100 mm, framed glass 50 mm thick and 2100 mm high, with 30 mm perimeter frame and 3 mm glass. Frame can be disabled and glass height customized.
