@@ -19,6 +19,10 @@ module SSDigitalLab
         end
       end
 
+      def face_offsets(w)
+        w[:face_offsets] || side_offsets(w[:thickness], w[:alignment])
+      end
+
       def add(a, b); [a[0] + b[0], a[1] + b[1]]; end
       def sub(a, b); [a[0] - b[0], a[1] - b[1]]; end
       def mult(a, k); [a[0] * k, a[1] * k]; end
@@ -79,7 +83,7 @@ module SSDigitalLab
         d2 = unit(sub(mate[:end], mate[:start])); n2 = normal(d2)
         determinant = cross(d1, d2)
         return nil if determinant.abs < MIN_ANGLE_SIN
-        a_offsets = side_offsets(w[:thickness], w[:alignment]); b_offsets = side_offsets(mate[:thickness], mate[:alignment])
+        a_offsets = face_offsets(w); b_offsets = face_offsets(mate)
         # When both baselines run into (or out of) the corner, opposite faces pair.
         swap_sides = (at == mate_at)
         end_pt = w[at.to_sym]
@@ -107,7 +111,7 @@ module SSDigitalLab
         return nil unless along > end_margin && along < host_length - end_margin
         signed_distance = dot(sub(p, host[:start]), nh)
         # The endpoint must actually touch the host's body or centre reference line.
-        low, high = side_offsets(host[:thickness], host[:alignment])
+        low, high = face_offsets(host)
         return nil if signed_distance < low - TEE_FACE_TOLERANCE || signed_distance > high + TEE_FACE_TOLERANCE
         hits = [low, high].map { |side| (side - signed_distance) / parallel }
         hit = at == 'end' ? hits.min : hits.max
