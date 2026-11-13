@@ -58,6 +58,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
    <h2>Convert lines to BIM walls</h2>
    <p class="hint"><b>Draw with SketchUp Line (L)</b> on a single horizontal plane. Select one edge or an enclosed face. ArchiBIM finds the connected chain, merges straight segments, recognises corners and T-junctions, and splits crossings into linked branches.</p>
    <button class="btn primary full" data-action="convertLines">Convert connected lines to walls</button>
+   <button class="btn outline full" data-action="auditScan">Analyze iPad scan (read-only JSON)</button>
    <p class="hint">Uses current wall thickness, height and alignment on the active level. Source lines stay untouched. Mixed-height / sloping edges, overlaps and walls under 50 mm are rejected. Complex 3-way junctions without a through-line are flagged for review.</p>
  </div>
  <div class="panel"><div class="eyebrow">Wall connection defaults</div><label><input id="autoWallJoin" type="checkbox" style="width:auto;margin-right:7px" checked/>Detect and connect touching wall junctions automatically</label><p class="hint">Corner and internal T-junctions now default to Linked. You can set any junction to Join Only or Unlinked in Wall Properties. Legacy Join Only junctions retain their prior setting until you explicitly link them.</p><div class="grid"> <button class="btn outline small" data-action="scanAllWalls">Scan all walls</button> <button class="btn outline small" data-action="linkAllTees">Link existing T-junctions</button></div><div id="graphFeedbackBuild"></div></div>
@@ -284,6 +285,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'reconnectWall':call('reconnect_wall');break;
       case 'scanAllWalls':call('scan_wall_connections');break;
       case 'convertLines':call('convert_lines_to_walls');break;
+      case 'auditScan':call('audit_ipad_scan');break;
       case 'linkAllTees':if(confirm('Make all touching existing interior T-junctions Linked, so interior partitions follow their host walls? This is undoable.'))call('link_existing_tees');break;
       case 'resetCamera':call('reset_camera');break;
       case 'syncStairHoles':call('sync_stair_holes');break;
