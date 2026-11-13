@@ -298,10 +298,12 @@ module SSDigitalLab
           [-1.0,1.0].each do |side|
             y=mid_y+side*(glass/2.0+0.55)
             panes.each_with_index do |(left,right,min_z,max_z),index|
-              if opening.fetch('hinge','left') == 'top'
+              if %w[top bottom].include?(opening.fetch('hinge','left'))
                 mid_x=(left+right)/2.0
-                apex_z=marker=='hinge' ? max_z : min_z
-                edge_z=marker=='hinge' ? min_z : max_z
+                hinge_z=opening['hinge']=='top' ? max_z : min_z
+                opposite_z=opening['hinge']=='top' ? min_z : max_z
+                apex_z=marker=='hinge' ? hinge_z : opposite_z
+                edge_z=marker=='hinge' ? opposite_z : hinge_z
                 symbol_edge(elev,dashed,[left,y,edge_z],[mid_x,y,apex_z])
                 symbol_edge(elev,dashed,[mid_x,y,apex_z],[right,y,edge_z])
                 next
