@@ -254,6 +254,18 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
         <label><input type="checkbox" id="p_glass_wall_frame" style="width:auto" ${d.glass_wall_frame!==false?'checked':''}> Frame perimeter (50mm wall / frame depth)</label>
         <div class="grid">${field('p_glass_wall_frame_width','Frame border width',fmm(d.glass_wall_frame_width??30))}
         ${field('p_glass_wall_glass_thickness','Glass thickness',fmm(d.glass_wall_glass_thickness??3))}</div>
+        <div class="grid">
+         ${field('p_glass_wall_mullions_count','Equal mullion quantity',d.glass_wall_mullions_count??0,'number')}
+         ${field('p_glass_wall_mullion_width','Mullion / transom face',fmm(d.glass_wall_mullion_width??20))}
+         ${choose('p_glass_wall_corner_at','Hollow corner tube',choices.cornerEnds,d.glass_wall_corner_at||'none')}
+         ${field('p_glass_wall_corner_skin','Tube skin',fmm(d.glass_wall_corner_skin??3))}
+        </div>
+        <label><input type="checkbox" id="p_glass_wall_auto_transom" style="width:auto" ${d.glass_wall_auto_transom!==false?'checked':''}> Align transom with door head automatically</label>
+        <label><input type="checkbox" id="p_glass_wall_partition_above" style="width:auto" ${d.glass_wall_partition_above===true?'checked':''}> Partition above the glass</label>
+        <div class="grid">
+          ${field('p_glass_wall_partition_height','Partition above height',fmm(d.glass_wall_partition_height??900))}
+          ${field('p_glass_wall_partition_thickness','Partition above thickness',fmm(d.glass_wall_partition_thickness??100))}
+        </div>
         <p class="hint">Full-height frameless wall: uncheck frame and set the wall height above.</p>
       </div>`:''}
       ${d.kind==='roof'?choose('p_roof_type','Roof shape',choices.roofType,d.roof_type||'gable'):''}
