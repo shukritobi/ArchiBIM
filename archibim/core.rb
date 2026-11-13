@@ -11,6 +11,11 @@ module SSDigitalLab
         'wall_height' => 3000.0, 'wall_thickness' => 150.0,
         'wall_type' => 'brick', 'glass_wall_frame' => true,
         'glass_wall_frame_width' => 30.0, 'glass_wall_glass_thickness' => 3.0,
+        'glass_wall_mullions_count' => 0, 'glass_wall_mullion_width' => 20.0,
+        'glass_wall_auto_transom' => true, 'glass_wall_corner_at' => 'none',
+        'glass_wall_corner_skin' => 3.0,
+        'glass_wall_partition_above' => false, 'glass_wall_partition_height' => 900.0,
+        'glass_wall_partition_thickness' => 100.0,
         'wall_exterior_side' => 'right',
         'auto_repair_scale' => true, 'auto_wall_join' => true,
         'wall_alignment' => 'center', 'column_alignment' => 'center', 'beam_alignment' => 'center',
@@ -29,14 +34,14 @@ module SSDigitalLab
         'beam_width' => 300.0, 'beam_depth' => 450.0, 'beam_offset' => 2400.0,
         'door_width' => 900.0, 'door_height' => 2100.0,
         'door_leafless' => false,
-        'door_style' => 'solid', 'door_handle' => 'lever',
+        'door_style' => 'solid', 'door_handle' => 'lever', 'door_glass_thickness' => 10.0,
         'door_transom' => false, 'door_transom_height' => 450.0,
         'door_mount' => 'center', 'window_mount' => 'center',
         'sliding_door_width' => 2400.0, 'sliding_door_height' => 2100.0,
         'sliding_door_mount' => 'center', 'sliding_door_panels' => 2,
         'sliding_door_direction' => 'left',
         'window_width' => 1200.0, 'window_height' => 1200.0, 'window_sill' => 900.0,
-        'window_panels' => 2, 'window_operation' => 'casement',
+        'window_panels' => 2, 'window_operation' => 'casement', 'window_hinge' => 'left',
         'window_transom' => false, 'window_transom_height' => 450.0,
         'window_outer_frame' => 50.0,
         'window_inner_frame' => 30.0, 'window_glass_thickness' => 3.0,
@@ -81,11 +86,19 @@ module SSDigitalLab
           elsif key == 'wall_type'
             raise ArgumentError, 'Unknown wall type' unless %w[brick partition glass].include?(raw[key])
             h[key] = raw[key]
+          elsif key == 'glass_wall_corner_at'
+            raise ArgumentError, 'Corner profile ends must be none, start, end or both' unless %w[none start end both].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'glass_wall_mullions_count'
+            h[key] = number(raw[key], key, min: 0, max: 30, allow_zero: true).to_i
           elsif key == 'door_style'
             raise ArgumentError, 'Unknown door type' unless %w[solid glass_frameless glass_framed].include?(raw[key])
             h[key] = raw[key]
           elsif key == 'door_handle'
             raise ArgumentError, 'Unknown door handle' unless %w[lever round_knob pull].include?(raw[key])
+            h[key] = raw[key]
+          elsif key == 'window_hinge'
+            raise ArgumentError, 'Window hinge must be left/right/top' unless %w[left right top].include?(raw[key])
             h[key] = raw[key]
           elsif key == 'window_operation'
             raise ArgumentError, 'Unknown window operation' unless %w[casement fixed].include?(raw[key])
@@ -105,7 +118,7 @@ module SSDigitalLab
           elsif key == 'truss_style'
             raise ArgumentError, 'Unknown truss pattern' unless %w[king_post fink].include?(raw[key])
             h[key] = raw[key]
-          elsif %w[auto_wall_join door_leafless door_transom window_transom glass_wall_frame roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
+          elsif %w[auto_wall_join door_leafless door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above roof_infill auto_repair_scale stair_cut_slab room_add_zone gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
             h[key] = (raw[key] == true || raw[key].to_s == 'true' || raw[key] == 1)
           elsif key == 'stair_structure'
             raise ArgumentError, 'Stair construction must be waist or open' unless %w[waist open].include?(raw[key])
@@ -119,7 +132,7 @@ module SSDigitalLab
           elsif key == 'sliding_door_panels'
             h[key] = number(raw[key], key, min: 2, max: 4, allow_zero: true).to_i
           elsif key == 'window_panels'
-            h[key] = number(raw[key], key, min: 0, max: 4).to_i
+            h[key] = number(raw[key], key, min: 0, max: 20).to_i
           elsif key == 'stair_steps'
             h[key] = number(raw[key], key, min: 0, max: 100).to_i
           elsif key == 'roof_pitch'
@@ -137,6 +150,24 @@ module SSDigitalLab
           end
         end
         h
+      end
+
+      WINDOW_PRESETS = {
+        'toilet_top_hung' => { 'width' => 900.0, 'height' => 900.0, 'sill' => 1500.0, 'operation' => 'casement', 'panels' => 2, 'hinge' => 'top' },
+        'tall_narrow' => { 'width' => 300.0, 'height' => 1200.0, 'sill' => 300.0, 'operation' => 'casement', 'panels' => 1 }
+      }.freeze
+
+      def self.window_preset(key)
+        WINDOW_PRESETS.fetch(key.to_s) { raise ArgumentError, 'Unknown window preset' }.dup
+      end
+
+      def self.window_panel_count(width, max_width: 600.0)
+        raise ArgumentError, 'Window width must be positive' unless width.to_f.positive?
+        [(width.to_f / max_width).ceil, 1].max
+      end
+
+      def self.transom_panel_count(width, max_width: 1200.0)
+        [(width.to_f / max_width).ceil, 1].max
       end
 
       WALL_TYPES = {

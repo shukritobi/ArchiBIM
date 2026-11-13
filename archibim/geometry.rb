@@ -132,7 +132,7 @@ module SSDigitalLab
         height = opening['height'].to_f
         outer = [opening.fetch('outer_frame', 50.0).to_f, width / 6.0, height / 6.0].min
         sash = [opening.fetch('inner_frame', 30.0).to_f, width / 12.0, height / 12.0].min
-        count = [[opening.fetch('panels', 2).to_i, 1].max, 4].min
+        count = [[opening.fetch('panels', 2).to_i, 1].max, 20].min
         inner_left = x + outer
         cell = (width - outer * 2.0) / count
         count.times.filter_map do |index|
@@ -284,29 +284,46 @@ module SSDigitalLab
         elsif opening['kind'] == 'window'
           glass = opening.fetch('glass_thickness', 3.0).to_f
           panes = window_glass_bays(opening)
-          marker = opening.fetch('marker', 'hinge')
-          y = frame_bounds(wall,opening).sum / 2.0 + glass / 2.0 + 0.55
-          panes.each_with_index do |(left, right, min_z, max_z), index|
-            # Two casements hinge at the outer jambs; each marker stays inside
-            # its own glass pane and is offset just 0.55 mm off the surface.
-            hinge_left_at = panes.length == 2 ? index.zero? : hinge_left
-            point_left = marker == 'hinge' ? hinge_left_at : !hinge_left_at
-            point_x, far_x = point_left ? [left, right] : [right, left]
-            mid_z = (min_z + max_z) / 2.0
-            symbol_edge(elev, dashed, [far_x, y, min_z], [point_x, y, mid_z])
-            symbol_edge(elev, dashed, [point_x, y, mid_z], [far_x, y, max_z])
+          marker = opening.fetch('marker','hinge')
+          mid_y=frame_bounds(wall,opening).sum/2.0
+          # Elevation symbols on BOTH faces. A far-side elevation must mirror
+          # the near-side marking rather than repeating the same V direction.
+          [-1.0,1.0].each do |side|
+            y=mid_y+side*(glass/2.0+0.55)
+            panes.each_with_index do |(left,right,min_z,max_z),index|
+              if opening.fetch('hinge','left') == 'top'
+                mid_x=(left+right)/2.0
+                symbol_edge(elev,dashed,[left,y,min_z],[mid_x,y,max_z])
+                symbol_edge(elev,dashed,[mid_x,y,max_z],[right,y,min_z])
+                next
+              end
+              hinge_left_at=panes.length == 2 ? index.zero? : index.even?
+              hinge_left_at=!hinge_left_at if side.negative?
+              marked_left=marker=='hinge' ? hinge_left_at : !hinge_left_at
+              point_x,far_x=marked_left ? [left,right] : [right,left]
+              mid_z=(min_z+max_z)/2.0
+              symbol_edge(elev,dashed,[far_x,y,min_z],[point_x,y,mid_z])
+              symbol_edge(elev,dashed,[point_x,y,mid_z],[far_x,y,max_z])
+            end
           end
         else
-          outer = opening.fetch('outer_frame', 45.0).to_f
-          left, right = x + outer, x + width - outer
-          min_z, max_z = sill + 8.0, sill + height - outer
-          y = frame_bounds(wall,opening).sum / 2.0 + 20.5
-          marker = opening.fetch('marker', 'hinge')
-          point_left = marker == 'hinge' ? hinge_left : !hinge_left
-          point_x, far_x = point_left ? [left, right] : [right, left]
-          if right > left && max_z > min_z
-            symbol_edge(elev, dashed, [far_x, y, min_z], [point_x, y, (min_z + max_z) / 2.0])
-            symbol_edge(elev, dashed, [point_x, y, (min_z + max_z) / 2.0], [far_x, y, max_z])
+          outer=opening.fetch('outer_frame',45.0).to_f
+          frameless=opening.fetch('style','solid')=='glass_frameless'
+          outer=5.0 if frameless
+          left,right=x+outer,x+width-outer
+          min_z,max_z=sill+8.0,sill+height-outer
+          mid_y=frame_bounds(wall,opening).sum/2.0
+          thickness=frameless ? opening.fetch('glass_thickness',10.0).to_f : 40.0
+          marker=opening.fetch('marker','hinge')
+          [-1.0,1.0].each do |side|
+            y=mid_y+side*(thickness/2.0+0.55)
+            point_left=marker=='hinge' ? hinge_left : !hinge_left
+            point_left=!point_left if side.negative?
+            point_x,far_x=point_left ? [left,right] : [right,left]
+            next unless right>left && max_z>min_z
+            mid_z=(min_z+max_z)/2.0
+            symbol_edge(elev,dashed,[far_x,y,min_z],[point_x,y,mid_z])
+            symbol_edge(elev,dashed,[point_x,y,mid_z],[far_x,y,max_z])
           end
         end
       end
@@ -397,11 +414,11 @@ module SSDigitalLab
             box(panel.entities, inner_l, inner_r,
                 mid_y - thickness / 2.0, mid_y + thickness / 2.0, inner_b, inner_t)
             panel.material = material(model, style == 'solid' ? 'door' : 'glass')
-            pivot_hinges(child, opening, mid_y, inner_b, inner_t, model) if frameless
+            pivot_hinges(child, opening, mid_y, z, z + height, model) if frameless
             door_hardware(child, opening, model, mid_y, inner_b, inner_t, style)
           end
         else
-          count = [[opening.fetch('panels', 2).to_i, 1].max, 4].min
+          count = [[opening.fetch('panels', 2).to_i, 1].max, 20].min
           pane_width = (inner_r - inner_l) / count
           (0...count).each do |index|
             xl = inner_l + index * pane_width

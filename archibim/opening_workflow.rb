@@ -77,6 +77,13 @@ module SSDigitalLab
           end
           applied << key
         end
+        if copy['kind']=='window' && changes.key?('width') && !changes.key?('panels')
+          copy['panels']=Core.window_panel_count(copy['width'])
+        end
+        if copy['kind']=='door' && %w[glass_frameless glass_framed].include?(copy.fetch('style','solid')) &&
+           copy.fetch('glass_thickness',3.0).to_f < 8.0
+          copy['glass_thickness']=ArchiBIM.settings['door_glass_thickness']
+        end
         if applied.empty?
           skipped << id
         else

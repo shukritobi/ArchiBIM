@@ -9,11 +9,14 @@ require_relative 'wall_graph'
 require_relative 'wall_junction_repair'
 require_relative 'geometry'
 require_relative 'opening_details'
+require_relative 'glazing_layout'
 require_relative 'opening_workflow'
 require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'wall_angle_math'
 require_relative 'tools'
+require_relative 'opening_tools_ext'
+require_relative 'opening_schedules'
 require_relative 'wall_draw_inference'
 require_relative 'wall_straighten'
 require_relative 'connected_move'
@@ -25,7 +28,7 @@ require_relative 'dxf_export'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.8.6'
+    VERSION = '0.8.7'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -100,13 +103,13 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join door_leafless door_transom window_transom glass_wall_frame wall_type door_style door_handle window_operation wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels window_hinge auto_repair_scale auto_wall_join door_leafless door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above glass_wall_mullions_count glass_wall_corner_at wall_type door_style door_handle window_operation wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_type door_style door_handle window_operation door_transom window_transom glass_wall_frame wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
+        next if %w[rates wall_type door_style door_handle window_operation window_hinge door_transom window_transom glass_wall_frame glass_wall_auto_transom glass_wall_partition_above glass_wall_mullions_count glass_wall_corner_at wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
       end
       if patch.key?('wall_type')
@@ -309,6 +312,14 @@ module SSDigitalLab
                       'wall_type' => s['wall_type'], 'glass_wall_frame' => s['glass_wall_frame'],
                       'glass_wall_frame_width' => s['glass_wall_frame_width'],
                       'glass_wall_glass_thickness' => s['glass_wall_glass_thickness'],
+                      'glass_wall_mullions_count' => s['glass_wall_mullions_count'],
+                      'glass_wall_mullion_width' => s['glass_wall_mullion_width'],
+                      'glass_wall_auto_transom' => s['glass_wall_auto_transom'],
+                      'glass_wall_corner_at' => s['glass_wall_corner_at'],
+                      'glass_wall_corner_skin' => s['glass_wall_corner_skin'],
+                      'glass_wall_partition_above' => s['glass_wall_partition_above'],
+                      'glass_wall_partition_height' => s['glass_wall_partition_height'],
+                      'glass_wall_partition_thickness' => s['glass_wall_partition_thickness'],
                       'alignment' => s['wall_alignment'], 'exterior_side' => s['wall_exterior_side'], 'openings' => [])
         when 'beam'
           data.merge!('name' => 'Beam', 'length' => length,
@@ -877,6 +888,21 @@ module SSDigitalLab
           Core.number(data.fetch('glass_wall_frame_width', 30.0), 'glass frame width')
           Core.number(data.fetch('glass_wall_glass_thickness', 3.0), 'glass thickness')
           raise 'Glass thickness exceeds wall frame depth' if data.fetch('glass_wall_glass_thickness', 3.0).to_f >= data['thickness'].to_f
+          Core.number(data.fetch('glass_wall_mullion_width', 20.0),'mullion width')
+          mullions=Core.number(data.fetch('glass_wall_mullions_count',0),'mullion quantity',min:0,max:30,allow_zero:true)
+          raise 'Mullion count must be an integer' unless mullions == mullions.to_i
+          if data.fetch('glass_wall_frame',true) && data.fetch('glass_wall_mullion_width',20.0).to_f > data.fetch('glass_wall_frame_width',30.0).to_f
+            raise 'Mullions cannot be wider than the main frame'
+          end
+          raise 'Glass corner profile must be none/start/end/both' unless %w[none start end both].include?(data.fetch('glass_wall_corner_at','none'))
+          skin=data.fetch('glass_wall_corner_skin',3.0).to_f
+          raise 'Invalid hollow corner profile skin' unless skin > 0 && skin*2 < data['thickness'].to_f
+          if data.fetch('glass_wall_partition_above',false)
+            Core.number(data.fetch('glass_wall_partition_height',900.0),'partition above height')
+            Core.number(data.fetch('glass_wall_partition_thickness',100.0),'partition above thickness')
+          end
+          require_relative 'glazing_layout'
+          GlazingLayout.pane_rectangles(data)
         end
         raise 'Invalid exterior face' unless %w[left right].include?(data.fetch('exterior_side','right'))
         raise 'Wall alignment must be left, center or right' unless %w[left center right].include?(data.fetch('alignment', 'left'))
@@ -891,14 +917,16 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance wall_type glass_wall_frame glass_wall_frame_width glass_wall_glass_thickness]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance wall_type glass_wall_frame glass_wall_frame_width glass_wall_glass_thickness glass_wall_mullions_count glass_wall_mullion_width glass_wall_auto_transom glass_wall_corner_at glass_wall_corner_skin glass_wall_partition_above glass_wall_partition_height glass_wall_partition_thickness]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment exterior_side roof_type truss_style style structure handrail wall_type].include?(key)
+        if %w[name code notes level_id alignment exterior_side roof_type truss_style style structure handrail wall_type glass_wall_corner_at].include?(key)
           data[key] = value.to_s[0, 250]
-        elsif %w[infill cut_slab gutter_enabled downpipe_enabled truss_enabled awning_posts glass_wall_frame].include?(key)
+        elsif %w[infill cut_slab gutter_enabled downpipe_enabled truss_enabled awning_posts glass_wall_frame glass_wall_auto_transom glass_wall_partition_above].include?(key)
           data[key] = !!value
+        elsif key == 'glass_wall_mullions_count'
+          data[key] = Core.number(value, key, min: 0, max: 30, allow_zero: true).to_i
         elsif key == 'steps'
           data[key] = Core.number(value, 'steps', min: 0, max: 100).to_i
         else
@@ -947,7 +975,7 @@ module SSDigitalLab
       end
       opening = { 'id' => SecureRandom.uuid, 'kind' => kind, 'offset' => offset,
                   'width' => width, 'height' => height, 'sill' => sill,
-                  'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in'),
+                  'hinge' => fields.fetch('hinge', kind == 'window' ? s['window_hinge'] : 'left'), 'swing' => fields.fetch('swing', 'in'),
                   'marker' => fields.fetch('marker', 'hinge'),
                   'transom' => fields.fetch('transom', kind == 'window' ? s['window_transom'] : s['door_transom']) == true,
                   'transom_height' => mm_from_user(fields.fetch('transom_height', s["#{kind == 'window' ? 'window' : 'door'}_transom_height"]), 'transom height'),
@@ -957,7 +985,7 @@ module SSDigitalLab
         opening['style'] = fields.fetch('style', s['door_style'])
         opening['handle'] = fields.fetch('handle', s['door_handle'])
         opening['outer_frame'] = 45.0
-        opening['glass_thickness'] = 3.0
+        opening['glass_thickness'] = opening['style'] == 'glass_frameless' ? s['door_glass_thickness'] : (opening['style'] == 'glass_framed' ? s['door_glass_thickness'] : 3.0)
       end
       if kind == 'sliding_door'
         opening['panels']=s['sliding_door_panels']
@@ -967,7 +995,8 @@ module SSDigitalLab
         opening['glass_thickness']=6.0
       elsif kind == 'window'
         opening['operation'] = fields.fetch('operation', s['window_operation'])
-        opening['panels'] = s['window_panels']
+        opening['panels'] = Core.window_panel_count(width)
+        opening['hinge'] = fields.fetch('hinge', 'left')
         opening['outer_frame'] = s['window_outer_frame']
         opening['inner_frame'] = s['window_inner_frame']
         opening['glass_thickness'] = s['window_glass_thickness']
@@ -1011,14 +1040,21 @@ module SSDigitalLab
       %w[outer_frame inner_frame glass_thickness].each do |k|
         open[k] = mm_from_user(patch[k], k) if patch.key?(k) && %w[door window sliding_door].include?(open['kind'])
       end
+      if open['kind']=='window' && patch.key?('width') && !patch.key?('panels')
+        open['panels']=Core.window_panel_count(open['width'])
+      end
       if patch.key?('panels') && %w[window sliding_door].include?(open['kind'])
-        open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: 4, allow_zero: true).to_i
+        open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: open['kind']=='window' ? 20 : 4, allow_zero: true).to_i
+      end
+      if open['kind']=='door' && %w[glass_frameless glass_framed].include?(open.fetch('style','solid')) &&
+          open.fetch('glass_thickness',3.0).to_f < 8.0
+        open['glass_thickness']=settings['door_glass_thickness']
       end
       Core.validate_opening_options!(open)
       raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
       raise 'Invalid sliding direction' unless %w[left right].include?(open.fetch('slide_direction','left'))
       raise 'Marker must be hinge or handle' unless %w[hinge handle].include?(open.fetch('marker', 'hinge'))
-      raise 'Invalid hinge' unless %w[left right].include?(open.fetch('hinge', 'left'))
+      raise 'Invalid hinge' unless %w[left right top].include?(open.fetch('hinge', 'left'))
       raise 'Invalid swing direction' unless %w[in out].include?(open.fetch('swing', 'in'))
       Core.wall_cells(data['length'], data['height'], data['openings'])
       model = Sketchup.active_model
@@ -1446,6 +1482,25 @@ module SSDigitalLab
 
     def bind_callbacks(dialog)
       dialog.add_action_callback('ready') { |_ctx| callback_safe { watch_selection(Sketchup.active_model); refresh_panel(!selected.nil?) } }
+      dialog.add_action_callback('opening_path_tool') do |_ctx, kind|
+        callback_safe do
+          raise 'Choose door/window/sliding door' unless %w[door window sliding_door].include?(kind)
+          Sketchup.active_model.select_tool(OpeningPathTool.new(kind))
+        end
+      end
+      dialog.add_action_callback('opening_pick_tool') do |_ctx|
+        callback_safe { Sketchup.active_model.select_tool(OpeningSelectionTool.new) }
+      end
+      dialog.add_action_callback('window_preset') do |_ctx, key|
+        callback_safe do
+          p=Core.window_preset(key)
+          save_settings({'window_width'=>p['width'],'window_height'=>p['height'],
+            'window_sill'=>p['sill'],'window_panels'=>p['panels'],'window_hinge'=>p['hinge'] || 'left'})
+        end
+      end
+      dialog.add_action_callback('opening_schedule') do |_ctx|
+        callback_safe { OpeningSchedules.export }
+      end
       dialog.add_action_callback('tool') do |_ctx, type|
         callback_safe do
           Diagnostics.log('tool_started', { kind: type })
@@ -1517,6 +1572,37 @@ module SSDigitalLab
       dialog.add_action_callback('set_tag') { |_ctx, name, visible, style| callback_safe { set_tag(name, visible, style) } }
       dialog.add_action_callback('rebuild') { |_ctx, scope, mode| callback_safe { rebuild_bim(scope, mode) } }
       dialog.add_action_callback('diagnostics') { |_ctx| callback_safe { export_diagnostics } }
+      dialog.add_action_callback('ui_snapshot') do |_ctx, payload|
+        callback_safe do
+          raise ArgumentError, 'Invalid UI snapshot' unless payload.is_a?(Hash) && payload['report'].is_a?(Hash)
+          path=UI.savepanel('Save ArchiBIM UI diagnostics',nil,'ArchiBIM_UI_Diagnostic.json')
+          if path
+            base=path.sub(/\.json\z/i,'')
+            report=payload['report'].merge('model_title'=>Sketchup.active_model.title,
+              'sketchup_version'=>Sketchup.version,'exported_at'=>Time.now.utc.iso8601)
+            if @dialog && @dialog.visible?
+              report['dialog_size']=@dialog.get_size
+              report['dialog_position']=@dialog.get_position
+            end
+            File.open(path,'w:UTF-8'){|file|file.write(JSON.pretty_generate(report))}
+            html=payload['html'].to_s
+            if html.bytesize > 2_000_000
+              report['html_error']='HtmlDialog snapshot too large for export'
+            else
+              File.open(base+'.html','w:UTF-8'){|file|file.write('<!DOCTYPE html>'+html)}
+            end
+            begin
+              Sketchup.active_model.active_view.write_image(filename:base+'_viewport.png',
+                width:1024,height:768,antialias:true)
+            rescue StandardError => image_error
+              report['viewport_error']=image_error.message
+            end
+            File.open(path,'w:UTF-8'){|file|file.write(JSON.pretty_generate(report))}
+            Diagnostics.log('ui_snapshot_export',{'path'=>path,'html_bytes'=>html.bytesize})
+            UI.messagebox("UI diagnostics exported next to #{File.basename(path)}.\nAttach the JSON, HTML and viewport PNG to the QA Lab.")
+          end
+        end
+      end
       dialog.add_action_callback('resize_footprint') do |_ctx, percentage|
         callback_safe { resize_footprint(Float(percentage) / 100.0) }
       end
@@ -1615,6 +1701,8 @@ module SSDigitalLab
       tools.add_item('Draw wall') { Sketchup.active_model.select_tool(DrawTool.new('wall')) }
       tools.add_item('Preview healing selected wall junctions') { callback_safe { WallJunctionRepair.preview } }
       tools.add_item('Heal selected wall junctions (max 170mm)') { callback_safe { WallJunctionRepair.apply } }
+      tools.add_item('Pick and edit nested door/window') { callback_safe { Sketchup.active_model.select_tool(OpeningSelectionTool.new) } }
+      tools.add_item('Draw window opening between two points') { callback_safe { Sketchup.active_model.select_tool(OpeningPathTool.new('window')) } }
       tools.add_item('Convert connected lines to BIM walls') { callback_safe { convert_selected_lines_to_walls } }
       tools.add_item('Preview straightening selected walls') { callback_safe { WallStraighten.preview } }
       tools.add_item('Straighten selected walls (90°, 5° tolerance)') { callback_safe { WallStraighten.apply } }

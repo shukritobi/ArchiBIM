@@ -59,6 +59,7 @@ class RepairTest < Minitest::Test
     assert_equal 3, s['window_glass_thickness']
     assert_equal 'butterfly', Core.settings({ 'roof_type' => 'butterfly' })['roof_type']
     assert_raises(ArgumentError) { Core.settings({ 'roof_type' => 'unsupported_complex' }) }
-    assert_raises(ArgumentError) { Core.settings({ 'window_panels' => 9 }) }
+    assert_equal 9, Core.settings({ 'window_panels' => 9 })['window_panels']
+    assert_raises(ArgumentError) { Core.settings({ 'window_panels' => 21 }) }
   end
 end

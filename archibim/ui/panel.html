@@ -22,8 +22,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   .qty{font-size:10.5px}.qty th,.qty td{padding:7px 5px}
 }
 @media (max-width:340px){.grid.tools{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:minmax(0,1fr)}}
+.panel-toggle{width:100%;display:block;margin:0 0 10px;padding:7px 10px;background:#1b3041;color:#abe8dc;border:1px solid #456078;border-radius:7px;font-weight:750;text-align:left;font-size:11px;cursor:pointer}
+.panel.folded > :not(.panel-toggle){display:none!important}
 </style></head><body>
-<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.6</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
+<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.7</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
 <nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="openings">Openings</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
 <main>
 <div id="actionFeedback" class="ui-status" role="status" aria-live="polite" aria-atomic="true">Ready. Select a tool or element to begin.</div>
@@ -31,7 +33,8 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 <section class="pane active" id="pane-build">
  <div class="panel"><div class="eyebrow">Project working level</div><label for="currentLevel">Active floor / story</label><div class="flex"><select class="grow" id="currentLevel"></select><button class="btn outline small" data-tab="levels">Manage</button></div><p class="hint">All new building elements will be assigned to this elevation and tag.</p></div>
  <div class="panel"><div class="eyebrow">Viewport</div><button class="btn primary full" data-action="resetCamera">Fit whole house · Perspective</button><p class="hint">Returns to a three-quarter perspective camera and frames all ArchiBIM elements.</p></div>
- <div class="panel" id="toolPicker"><div class="eyebrow">Architectural tools</div><div class="grid tools">
+ <div class="panel" id="toolPicker"><div class="eyebrow">Architectural tools</div>
+ <input id="toolSearch" aria-label="Search architectural tools" placeholder="Find wall, door, glass, slab..." style="margin-bottom:8px"><div class="grid tools">
  <button class="tool" data-tool="wall"><span class="icon">▥</span><b>Wall</b><span>Click two points</span></button>
  <button class="tool" data-tool="door"><span class="icon">▤</span><b>Door</b><span>Click hosted wall</span></button>
  <button class="tool" data-tool="sliding_door"><span class="icon">⇄</span><b>Sliding door</b><span>Hosted glazed panels</span></button>
@@ -50,6 +53,13 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   <div class="eyebrow" style="margin-top:15px">Element creation parameters</div>
   <h2 id="configToolTitle">Wall</h2><p class="hint" id="configToolHelp">Changes are saved to this model and reflected in the ghost preview.</p>
   <div class="grid" id="configToolFields"></div>
+  <div id="windowPresets" style="display:none">
+   <div class="eyebrow">Quick window presets</div>
+   <div class="grid"><button class="btn outline" data-action="windowPreset" data-preset="toilet_top_hung">Toilet top hung · 900×900, sill 1500</button>
+   <button class="btn outline" data-action="windowPreset" data-preset="tall_narrow">Tall narrow · 300×1200, sill 300</button></div>
+   <p class="hint">Design starting values only, fully adjustable.</p>
+  </div>
+  <button id="openingPathButton" class="btn outline full" style="display:none" data-action="openingPath">Draw opening between two wall points</button>
   <p class="hint">Settings are saved when you change a field. Move the mouse in SketchUp to refresh the ghost preview. The SketchUp Measurements box is still available for exact placement.</p>
   <button class="btn primary full" data-action="activateTool">Start placing this element</button>
  </div>
@@ -111,6 +121,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 </section>
 <section class="pane" id="pane-openings">
  <div class="panel"><div class="eyebrow">Across all BIM walls</div><h2>Multi-select doors &amp; windows</h2>
+   <button class="btn primary full" data-action="pickOpenings">Pick openings in model (Shift multi-select)</button>
    <p class="hint">Tick multiple openings, including openings hosted by different walls. Leave a field blank or choose Keep unchanged to avoid modifying it. One operation, one Undo. Invalid/overlapping updates abort the whole batch.</p>
    <div class="flex" style="gap:8px;align-items:center"><button class="btn outline small" data-action="selectAllOpenings">Select all</button><button class="btn outline small" data-action="clearOpeningSelection">Clear</button></div>
    <p id="bulkSelectionCount" class="hint">0 selected</p><div id="openingBulkList"></div>
@@ -141,6 +152,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <button class="btn outline" data-action="rebuildAll">Rebuild entire BIM model</button><button class="btn danger" data-action="adoptAll">Adopt Scale for all</button></div>
  </div>
  <div class="panel"><div class="eyebrow">Stair & floor coordination</div><h2>Recalculate stair openings</h2><p class="hint">Synchronises upper floor slab cutouts with all stairs that have Auto-cut enabled. Use after manually moving groups in SketchUp.</p><button class="btn outline full" data-action="syncStairHoles">Sync stairwell holes</button></div>
+ <div class="panel"><div class="eyebrow">UI diagnostics</div><h2>Export interface snapshot</h2>
+ <p class="hint">Exports the actual current HtmlDialog HTML, a JSON layout and overflow report, and an optional SketchUp viewport PNG. Save and attach to QA Lab. Nothing uploads automatically.</p>
+ <button class="btn outline full" data-action="uiSnapshot">Export UI snapshot + layout diagnostics</button>
+ </div>
  <div class="panel"><div class="eyebrow">Session diagnostics</div><h2>Export testing log</h2>
  <p class="hint">Every Create, Edit, Rebuild and error writes an event to a local JSONL log. Export now includes the full wall connection graph, face-offset measurements, exact world reference-line positions, broken links, unmatched wall endpoints, SketchUp version, and recent errors. No screenshots or files are uploaded automatically.</p>
  <button class="btn primary full" data-action="diagnostics">Export ArchiBIM testing log</button></div>
@@ -148,18 +163,34 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 </section>
 <section class="pane" id="pane-export">
  <div class="panel"><div class="eyebrow">Deliverables</div><h2>Schedules and model data</h2><div class="grid"><button class="btn primary" data-action="csv">Export CSV</button><button class="btn outline" data-action="json">Export JSON</button></div><p class="hint">CSV is suitable for Excel. JSON retains element metadata, levels, settings and takeoff details.</p></div>
+ <div class="panel"><div class="eyebrow">Detailed opening takeoff</div><h2>Door & window schedule</h2>
+ <p class="hint">Exports marked doors and windows with levels, host walls, sizes, hardware and quantities.</p>
+ <button class="btn primary full" data-action="openingSchedule">Export Door & Window Schedule CSV</button></div>
  <div class="panel"><div class="eyebrow">Open BIM</div><h2>IFC handoff</h2><button class="btn primary full" data-action="ifc">Export IFC model</button><p class="hint">Uses SketchUp's native IFC exporter where available (normally SketchUp Pro). IFC type assignment also depends on having the IFC classification schema loaded. Always verify the resulting file in an independent IFC viewer.</p></div>
  <div class="panel"><div class="eyebrow">Drawing set · preview</div><h2>Generate coordinated plans and elevations</h2><button class="btn primary full" data-action="drawing_set">Generate complete architectural scene set</button><p class="hint">Creates or updates floor/roof plans, four elevations, two central building sections and both available floor RCP previews. Uses native SketchUp scenes for LayOut. A second level is created only when a level exists; sections require manual placement and RCPs need ceiling objects.</p></div>\n <div class="panel"><div class="eyebrow">AI interoperability</div><h2>Export model snapshot</h2><button class="btn outline full" data-action="ai_snapshot">Export AI-readable JSON</button><p class="hint">Read-only opt-in export of BIM element IDs, world origins, parameters, levels and drawing references. No external connection is started.</p></div>
  <div class="panel"><div class="eyebrow">CAD exchange · early preview</div><h2>Layered 2D DXF drawings</h2><button class="btn outline full" data-action="dxf_set">Export 2D drawing set (DXF)</button><p class="hint">Saves millimetre 1:1 CAD lines for existing levels, roof, all elevations, central A-A/B-B sections, and RCP previews. This is preliminary projection/cut linework. Hidden-line cleanup, annotations, hatch and construction dimensions need drafting review in AutoCAD or LayOut.</p></div>\n <div class="panel"><div class="eyebrow">Documentation</div><h2>Plan scene</h2><button class="btn outline full" data-action="scene">Create +1200 mm cut plan scene</button><p class="hint">Creates a plan scene with a section cut at 1200 mm above the selected level and an orthographic top view. Dimensions, hatches and LayOut sheets are not automatic.</p></div>
  <div class="panel"><div class="eyebrow">Proportional plan resizing</div><h2>Resize BIM footprint</h2><div class="grid"><div><label for="footprintPercent">Plan scale (%)</label><input type="number" min="5" max="500" step="any" id="footprintPercent" value="80"></div><div style="align-self:end"><button class="btn outline full" data-action="resizeFootprint">Resize footprint</button></div></div><p class="hint">Changes wall runs, footprint and host positions while keeping wall thickness, door/window sizes and element heights. Test on a copy first. This is an explicit parametric command, not automatic interception of SketchUp's native Scale tool.</p></div>
  <div class="notice">Automatic two-wall miters and single-branch T-cuts are preliminary. Multi-way joins, dissimilar-level joins, true family types and full IFC interoperability require further development and desktop testing.</div>
 </section>
-<div class="footer">SS DIGITAL LAB · ARCHIBIM v0.8.6</div>
+<div class="footer">SS DIGITAL LAB · ARCHIBIM v0.8.7</div>
 </main>
 <script>
 (function(){
   let state = {settings:{}, levels:[], selected:null, report:{elements:[],openings:[],summary:{},cost:0},active_level:'GF'};
   let activeTool = null;
+  const foldedPanels=new Set();
+  function installFolds(){
+    document.querySelectorAll('.pane > .panel').forEach((panel,index)=>{
+      if(panel.dataset.foldInit)return;panel.dataset.foldInit='1';
+      const key=panel.id||panel.closest('.pane').id+'-'+index;
+      const title=panel.querySelector('h2,h3,.eyebrow')?.textContent?.trim()||'Details';
+      const button=document.createElement('button');button.type='button';
+      button.className='panel-toggle';button.dataset.foldKey=key;
+      button.textContent='▾ '+title;button.setAttribute('aria-expanded','true');
+      panel.insertBefore(button,panel.firstChild);
+      if(foldedPanels.has(key)){panel.classList.add('folded');button.textContent='▸ '+title;button.setAttribute('aria-expanded','false');}
+    });
+  }
   const selectedOpeningIds=new Set();
   let tab = 'build';
   const $ = id => document.getElementById(id);
@@ -180,9 +211,13 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   function showTab(name){tab=name;document.querySelectorAll('#nav button').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));document.querySelectorAll('.pane').forEach(el=>el.classList.toggle('active',el.id===`pane-${name}`));}
   // Every BIM tool has its own type/creation inspector, following BIM property palettes.
   const toolSchema={
-   wall:{title:'Wall',help:'Brick 150mm, partition 100mm, or glass 50mm framed / frameless. Choose type to load presets; dimensions remain editable.', fields:[['wall_type','Wall construction type','wallTypes'],['wall_height','Wall height'],['wall_thickness','Wall thickness / frame depth'],['glass_wall_frame','Glass wall has perimeter frame','boolean'],['glass_wall_frame_width','Glass frame border width'],['glass_wall_glass_thickness','Glass panel thickness'],['wall_alignment','Location line','align'],['wall_exterior_side','Exterior side (relative to draw direction)','side']]},
+   wall:{title:'Wall',help:'Brick 150mm, partition 100mm, or glass 50mm framed / frameless. Choose type to load presets; dimensions remain editable.', fields:[['wall_type','Wall construction type','wallTypes'],['wall_height','Wall height'],['wall_thickness','Wall thickness / frame depth'],['glass_wall_frame','Perimeter frame','boolean'],['glass_wall_frame_width','Main frame face width'],['glass_wall_glass_thickness','Fixed glass pane thickness'],
+['glass_wall_mullions_count','Equally spaced vertical mullions','int'],['glass_wall_mullion_width','Mullion/transom width'],
+['glass_wall_auto_transom','Auto transom at door top','boolean'],['glass_wall_corner_at','Hollow corner profile','cornerEnds'],
+['glass_wall_corner_skin','Hollow profile sheet thickness'],['glass_wall_partition_above','Partition above glass','boolean'],
+['glass_wall_partition_height','Partition above height'],['glass_wall_partition_thickness','Partition above depth'],['wall_alignment','Location line','align'],['wall_exterior_side','Exterior side (relative to draw direction)','side']]},
    door:{title:'Door / Open passage',help:'Solid hinged door, frameless glass with top/bottom pivots, framed glass or leafless passage. Left/Right changes hinge; Up/Down reverses swing while hovering.',fields:[['door_width','Clear opening width'],['door_height','Door opening height'],['door_style','Door construction','doorStyles'],['door_handle','Handle / pull','doorHandles'],['door_transom','Upper fixed glass panel','boolean'],['door_transom_height','Upper panel height'],['door_mount','Frame depth placement','mount'],['door_leafless','Open passage (no door or frame)','boolean']]},
-   window:{title:'Window',help:'Fixed windows have no opening hinge or swing markers. Optionally add an upper glass panel. Frame can be flush on either wall face.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_operation','Opening operation','windowOps'],['window_transom','Upper fixed glass panel','boolean'],['window_transom_height','Upper panel height'],['window_mount','Frame depth placement','mount'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
+   window:{title:'Window',help:'Fixed windows have no opening hinge or swing markers. Optionally add an upper glass panel. Frame can be flush on either wall face.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_operation','Opening operation','windowOps'],['window_hinge','Window hinge orientation','windowHinges'],['window_transom','Upper fixed glass panel','boolean'],['window_transom_height','Upper panel height'],['window_mount','Frame depth placement','mount'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
    sliding_door:{title:'Sliding door',help:'Sliding aluminium/glazed panels with dual tracks. Hover a wall to insert.',fields:[['sliding_door_width','Opening width'],['sliding_door_height','Opening height'],['sliding_door_panels','Number of sliding panels','slidingPanels'],['sliding_door_direction','Sliding direction','slideDir'],['sliding_door_mount','Frame depth placement','mount']]},
    slab:{title:'Slab',help:"Draw a rectangle or type 20',70' in SketchUp Measurements to set the plan footprint.",fields:[['slab_thickness','Structural thickness']]},
    footing:{title:'Pad footing',help:'Draw rectangular pad. Thickness is measured downward from the working level.',fields:[['footing_thickness','Footing thickness']]},
@@ -194,10 +229,12 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
    room_walls:{title:'Four-wall room',help:'Click two opposing corners. Four individually editable walls will follow the perimeter; optional room area generated inside.',fields:[['wall_height','Wall height'],['wall_thickness','Wall thickness'],['room_add_zone','Create interior area zone','boolean']]}
   };
   const choices={
+    cornerEnds:[['none','No profile'],['start','At start'],['end','At end'],['both','Both ends']],
     wallTypes:[['brick','Brick wall · 150mm'],['partition','Partition wall · 100mm'],['glass','Glass wall · 50mm frame']],
     doorStyles:[['solid','Solid / timber leaf'],['glass_frameless','Frameless glass with top/bottom pivots'],['glass_framed','Glass leaf with full door frame']],
     doorHandles:[['lever','Lever (default)'],['round_knob','Round knob'],['pull','Long vertical pull handle']],
     windowOps:[['casement','Casement'],['fixed','Fixed: cannot open']],
+    windowHinges:[['left','Left'],['right','Right'],['top','Top hung']],
     side:[['right','Right side of drawing direction'],['left','Left side of drawing direction']],
     mount:[['center','Centred within wall'],['exterior','Flush exterior wall face'],['interior','Flush interior wall face']],
     slideDir:[['left','Slide toward left'],['right','Slide toward right']],
@@ -225,6 +262,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     }).join('');
     def.fields.forEach(([key])=>{const el=$('cfg_'+key);if(el)el.dataset.setting=key;});
     refreshOpeningDependencies();
+    const presets=$('windowPresets');
+    if(presets)presets.style.display=activeTool==='window'?'':'none';
+    const path=$('openingPathButton');
+    if(path)path.style.display=['door','window','sliding_door'].includes(activeTool)?'':'none';
   }
   function presets(){
     renderToolEditor();
@@ -249,6 +290,18 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
         <label><input type="checkbox" id="p_glass_wall_frame" style="width:auto" ${d.glass_wall_frame!==false?'checked':''}> Frame perimeter (50mm wall / frame depth)</label>
         <div class="grid">${field('p_glass_wall_frame_width','Frame border width',fmm(d.glass_wall_frame_width??30))}
         ${field('p_glass_wall_glass_thickness','Glass thickness',fmm(d.glass_wall_glass_thickness??3))}</div>
+        <div class="grid">
+         ${field('p_glass_wall_mullions_count','Equal mullion quantity',d.glass_wall_mullions_count??0,'number')}
+         ${field('p_glass_wall_mullion_width','Mullion / transom face',fmm(d.glass_wall_mullion_width??20))}
+         ${choose('p_glass_wall_corner_at','Hollow corner tube',choices.cornerEnds,d.glass_wall_corner_at||'none')}
+         ${field('p_glass_wall_corner_skin','Tube skin',fmm(d.glass_wall_corner_skin??3))}
+        </div>
+        <label><input type="checkbox" id="p_glass_wall_auto_transom" style="width:auto" ${d.glass_wall_auto_transom!==false?'checked':''}> Align transom with door head automatically</label>
+        <label><input type="checkbox" id="p_glass_wall_partition_above" style="width:auto" ${d.glass_wall_partition_above===true?'checked':''}> Partition above the glass</label>
+        <div class="grid">
+          ${field('p_glass_wall_partition_height','Partition above height',fmm(d.glass_wall_partition_height??900))}
+          ${field('p_glass_wall_partition_thickness','Partition above thickness',fmm(d.glass_wall_partition_thickness??100))}
+        </div>
         <p class="hint">Full-height frameless wall: uncheck frame and set the wall height above.</p>
       </div>`:''}
       ${d.kind==='roof'?choose('p_roof_type','Roof shape',choices.roofType,d.roof_type||'gable'):''}
@@ -346,9 +399,13 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const glassProps=$('wallGlazingProperties');
     if(glassProps)glassProps.style.display=from('p_wall_type')==='glass'?'':'none';
     const isGlass=from('cfg_wall_type')==='glass';
-    ['glass_wall_frame','glass_wall_frame_width','glass_wall_glass_thickness'].forEach(k=>{
+    ['glass_wall_frame','glass_wall_frame_width','glass_wall_glass_thickness','glass_wall_mullions_count','glass_wall_mullion_width','glass_wall_auto_transom','glass_wall_corner_at','glass_wall_corner_skin','glass_wall_partition_above','glass_wall_partition_height','glass_wall_partition_thickness'].forEach(k=>{
       const el=$('cfg_'+k);
       if(el)el.closest('div').style.display=isGlass?'':'none';
+    });
+    ['glass_wall_partition_height','glass_wall_partition_thickness'].forEach(k=>{
+      const e=$('cfg_'+k);
+      if(e&&isGlass)e.closest('div').style.display=$('cfg_glass_wall_partition_above')?.checked?'':'none';
     });
     if(activeTool==='door'){
       const passage=$('cfg_door_leafless')?.checked===true;
@@ -380,7 +437,11 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const content=item?`<div class="notice" style="margin-top:10px"><b>Wall scan · ${html(item.at||'')}</b><p>${html(item.message)}</p>${item.report?`<p class="hint">${html(JSON.stringify(item.report))}</p>`:''}</div>`:'';
     ['graphFeedbackBuild','graphFeedbackSelected','graphFeedbackTop'].forEach(id=>{const el=$(id);if(el)el.innerHTML=content;});
   }
-  window.ArchiBIM={receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}}};
+  window.ArchiBIM={setOpeningSelection(ids){selectedOpeningIds.clear();ids.forEach(id=>selectedOpeningIds.add(id));showTab('openings');renderBulkOpenings();announce(ids.length+' hosted openings selected in model.');},receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}installFolds();}};
+  $('toolSearch').addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase();
+    document.querySelectorAll('#toolPicker button.tool').forEach(el=>{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';});
+  });
   $('currentLevel').addEventListener('change',e=>call('active_level',e.target.value));
   $('autoRepairScale').addEventListener('change',e=>call('settings',{auto_repair_scale:e.target.checked}));
   $('autoWallJoin').addEventListener('change',e=>call('settings',{auto_wall_join:e.target.checked}));
@@ -405,22 +466,38 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       const preset={brick:[150,3000],partition:[100,3000],glass:[50,2100]}[e.target.value];
       if(preset){$('p_thickness').value=preset[0]+'mm';$('p_height').value=preset[1]+'mm';}
     }
-    if(e.target.id.includes('_operation')||e.target.id.includes('_transom')||
+    if(e.target.id.includes('_operation')||e.target.id.includes('_transom')||e.target.id.includes('glass_wall_partition_above')||
        e.target.id.includes('_leafless')||e.target.id==='p_wall_type'){
       refreshOpeningDependencies();
     }
   });
   document.body.addEventListener('click',e=>{
     const target=e.target.closest('button');if(!target)return;
+    if(target.classList.contains('panel-toggle')){
+      const panel=target.parentElement,key=target.dataset.foldKey;
+      const closed=panel.classList.toggle('folded');
+      if(closed)foldedPanels.add(key);else foldedPanels.delete(key);
+      target.textContent=(closed?'▸ ':'▾ ')+target.textContent.slice(2);
+      target.setAttribute('aria-expanded',closed?'false':'true');
+      return;
+    }
     if(target.dataset.tab){showTab(target.dataset.tab);return;}
     if(target.dataset.tool){activeTool=target.dataset.tool;renderToolEditor();showTab('build');call('tool',target.dataset.tool);return;}
     const a=target.dataset.action,id=target.dataset.id;
     switch(a){
       case 'backTools':activeTool=null;renderToolEditor();break;
+      case 'openingPath':if(activeTool)call('opening_path_tool',activeTool);break;
+      case 'pickOpenings':call('opening_pick_tool');break;
+      case 'openingSchedule':call('opening_schedule');break;
+      case 'windowPreset':call('window_preset',target.dataset.preset);break;
       case 'activateTool':if(activeTool)call('tool',activeTool);break;
       case 'saveRates':{const rates={};Object.keys(state.settings.rates||{}).forEach(k=>rates[k]=from('r_'+k));call('settings',{rates});break;}
       case 'saveElement':{const d=state.selected;if(!d)return;const keys={wall:['length','height','thickness'],slab:['width','depth','thickness'],footing:['width','depth','thickness'],roof:['width','depth','thickness','pitch','overhang','eave_offset','infill_thickness','gutter_width','gutter_depth','downpipe_diameter','downpipe_drop','truss_spacing','truss_member'],column:['width','depth','height'],beam:['length','width','depth','offset'],stair:['run','width','rise','steps','landing','gap','waist','rail_height','rail_diameter','post_spacing','max_riser','min_tread','hole_clearance'],room:['width','depth']}[d.kind]||[];
-        const patch={name:from('p_name'),code:from('p_code'),notes:from('p_notes'),level_id:from('p_level')};keys.forEach(k=>patch[k]=from('p_'+k));if(['wall','beam','column'].includes(d.kind))patch.alignment=from('p_alignment');if(d.kind==='wall'){patch.exterior_side=from('p_exterior_side');patch.wall_type=from('p_wall_type');patch.glass_wall_frame=$('p_glass_wall_frame')?.checked!==false;['glass_wall_frame_width','glass_wall_glass_thickness'].forEach(k=>{const v=from('p_'+k);if(v!==undefined)patch[k]=v;});}if(d.kind==='roof'){patch.roof_type=from('p_roof_type');patch.infill=$('p_infill').checked;patch.truss_style=from('p_truss_style');['gutter_enabled','downpipe_enabled','truss_enabled','awning_posts'].forEach(k=>patch[k]=$('p_'+k).checked);}if(d.kind==='stair'){patch.cut_slab=$('p_cut_slab').checked;patch.style=from('p_style');patch.structure=from('p_structure');patch.handrail=from('p_handrail');}call('update_element',patch);break;}
+        const patch={name:from('p_name'),code:from('p_code'),notes:from('p_notes'),level_id:from('p_level')};keys.forEach(k=>patch[k]=from('p_'+k));if(['wall','beam','column'].includes(d.kind))patch.alignment=from('p_alignment');if(d.kind==='wall'){patch.exterior_side=from('p_exterior_side');patch.wall_type=from('p_wall_type');patch.glass_wall_frame=$('p_glass_wall_frame')?.checked!==false;['glass_wall_frame_width','glass_wall_glass_thickness','glass_wall_mullions_count','glass_wall_mullion_width','glass_wall_corner_skin','glass_wall_partition_height','glass_wall_partition_thickness'].forEach(k=>{const v=from('p_'+k);if(v!==undefined)patch[k]=v;});
+patch.glass_wall_corner_at=from('p_glass_wall_corner_at');
+patch.glass_wall_auto_transom=$('p_glass_wall_auto_transom')?.checked!==false;
+patch.glass_wall_partition_above=$('p_glass_wall_partition_above')?.checked===true;
+}if(d.kind==='roof'){patch.roof_type=from('p_roof_type');patch.infill=$('p_infill').checked;patch.truss_style=from('p_truss_style');['gutter_enabled','downpipe_enabled','truss_enabled','awning_posts'].forEach(k=>patch[k]=$('p_'+k).checked);}if(d.kind==='stair'){patch.cut_slab=$('p_cut_slab').checked;patch.style=from('p_style');patch.structure=from('p_structure');patch.handrail=from('p_handrail');}call('update_element',patch);break;}
       case 'addOpening':{const choice=from('newOpeningKind');const kind=choice==='passage'?'door':choice;call('add_opening',kind,{offset:from('newOpeningOffset'),...(choice==='passage'?{leafless:true}:{})});break;}
       case 'editOpening':{const patch={};['offset','width','height','sill','hinge','swing','marker','mount','slide_direction','style','handle','operation','outer_frame','inner_frame','glass_thickness','panels','transom_height'].forEach(k=>{const v=from('o_'+id+'_'+k);if(v!==undefined)patch[k]=v;});const kind=state.selected?.openings?.find(o=>o.id===id)?.kind;if(kind==='door')patch.leafless=$('o_'+id+'_leafless').checked;if(kind!=='sliding_door')patch.transom=$('o_'+id+'_transom')?.checked===true;call('edit_opening',id,patch);break;}
       case 'moveOpening':call('move_opening_tool',id);break;
@@ -460,6 +537,25 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'adoptSelected':call('rebuild','selected','adopt_scale');break;
       case 'rebuildAll':if(confirm('Rebuild all BIM elements to their saved dimensions? This is undoable.'))call('rebuild','all','saved');break;
       case 'adoptAll':if(confirm('Adopt native Scale factors for all BIM objects? Backup your model first.'))call('rebuild','all','adopt_scale');break;
+      case 'uiSnapshot':{
+        const panels=[...document.querySelectorAll('.pane > .panel')].map(p=>{
+          const b=p.getBoundingClientRect();return {id:p.id,section:p.closest('section')?.id,
+            title:p.querySelector('h2,h3,.eyebrow')?.textContent?.trim()?.slice(0,110),
+            folded:p.classList.contains('folded'),visible:b.height>0&&b.width>0,
+            width:Math.round(b.width),height:Math.round(b.height),overflowX:p.scrollWidth>p.clientWidth+2};
+        });
+        const controls=[...document.querySelectorAll('input,select,button')].map(e=>{
+          const b=e.getBoundingClientRect();return {id:e.id||null,role:e.tagName,
+            visible:b.height>0&&b.width>0,outsideX:b.width>0&&(b.left<0||b.right>innerWidth),
+            label:e.getAttribute('aria-label')||e.textContent?.trim()?.slice(0,70)};
+        });
+        const report={capturedAt:new Date().toISOString(),version:state.version,
+          size:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio||1},
+          selectedKind:state.selected?.kind,tab,tool:activeTool,
+          panelCount:panels.length,panels,controls,
+          overflowItems:controls.filter(x=>x.outsideX).length};
+        call('ui_snapshot',{report,html:document.documentElement.outerHTML});break;
+      }
       case 'diagnostics':call('diagnostics');break;
       case 'refresh':case 'demo':case 'csv':case 'json':case 'ifc':case 'scene':case 'drawing_set':case 'ai_snapshot':case 'dxf_set':call(a);break;
     }
