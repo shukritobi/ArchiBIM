@@ -250,7 +250,7 @@ module SSDigitalLab
         @wall = nil
         @hit = nil
         @valid = false
-        @hinge = 'left'
+        @hinge = kind == 'window' ? ArchiBIM.settings.fetch('window_hinge','left') : 'left'
         @swing = 'in'
       end
 
