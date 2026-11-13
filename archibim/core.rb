@@ -201,6 +201,8 @@ module SSDigitalLab
           raise ArgumentError, 'Unknown door handle' unless %w[lever round_knob pull].include?(o.fetch('handle','lever'))
         elsif kind == 'window'
           raise ArgumentError, 'Unknown window operation' unless %w[casement fixed].include?(o.fetch('operation','casement'))
+          raise ArgumentError, 'Unknown window hinge (left/right/top/bottom)' unless
+            %w[left right top bottom].include?(o.fetch('hinge', 'left'))
         end
         if o.fetch('transom',false)
           h = number(o.fetch('transom_height',450), 'transom height', min: 0, max: 2000)
