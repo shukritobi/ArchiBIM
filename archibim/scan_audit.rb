@@ -10,6 +10,8 @@ module SSDigitalLab
       extend self
       MAX_CONTAINERS = 350
       MAX_SAMPLE_PER_CONTAINER = 1500
+      MAX_ROOT_TRAVERSAL = 6000
+      MAX_NESTED_TRAVERSAL = 4000
       MAX_DEPTH = 12
       INCH_TO_MM = 25.4
 
@@ -113,7 +115,13 @@ module SSDigitalLab
         visited_count = 0
         # Iterate root without model.entities.to_a: large Canvas scans can be huge.
         stack = []
+        root_visited = 0
         sources.each do |entity|
+          root_visited += 1
+          if root_visited > MAX_ROOT_TRAVERSAL
+            warnings << "Root traversal stopped at #{MAX_ROOT_TRAVERSAL} entities; select individual scan groups for deeper inspection."
+            break
+          end
           next unless entity.valid?
           if entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
             stack << [entity, Geom::Transformation.new, 0, [], []]
@@ -154,7 +162,14 @@ module SSDigitalLab
             next
           end
           next_ancestors = ancestors + [definition_id]
+          child_visited = 0
           definition.entities.each do |child|
+            child_visited += 1
+            if child_visited > MAX_NESTED_TRAVERSAL
+              child_stats['nested_walk_truncated'] = true
+              warnings << "Nested group traversal capped at #{MAX_NESTED_TRAVERSAL} entities per container; select a narrower scan group if needed."
+              break
+            end
             if child.valid? && (child.is_a?(Sketchup::Group) || child.is_a?(Sketchup::ComponentInstance))
               stack << [child, transform, depth + 1, path + [name], next_ancestors]
             end
@@ -170,6 +185,7 @@ module SSDigitalLab
           'source_file' => File.basename(model.path.to_s),
           'scope' => scope,
           'selected_entities' => selected.length,
+          'root_entities_visited' => [root_visited, MAX_ROOT_TRAVERSAL].min,
           'root_sample' => root_samples,
           'containers_inspected' => visited_count,
           'sampled_tag_occurrences' => tags.sort.to_h,
