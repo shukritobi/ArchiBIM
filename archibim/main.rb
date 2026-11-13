@@ -16,6 +16,7 @@ require_relative 'diagnostics'
 require_relative 'wall_angle_math'
 require_relative 'tools'
 require_relative 'opening_tools_ext'
+require_relative 'property_transfer'
 require_relative 'opening_schedules'
 require_relative 'wall_draw_inference'
 require_relative 'wall_straighten'
@@ -1524,6 +1525,9 @@ module SSDigitalLab
           raise 'Choose door/window/sliding door' unless %w[door window sliding_door].include?(kind)
           Sketchup.active_model.select_tool(OpeningPathTool.new(kind))
         end
+      end
+      dialog.add_action_callback('property_eyedropper_tool') do |_ctx|
+        callback_safe { Sketchup.active_model.select_tool(PropertyEyedropperTool.new) }
       end
       dialog.add_action_callback('opening_pick_tool') do |_ctx|
         callback_safe { Sketchup.active_model.select_tool(OpeningSelectionTool.new) }
