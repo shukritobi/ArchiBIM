@@ -62,7 +62,7 @@ module SSDigitalLab
           pivot: pivot, type: type, id: group.persistent_id }
       end
 
-      def set_reference
+      def set_reference(silent: false)
         model = Sketchup.active_model
         groups = selected_groups(model)
         raise 'Select exactly one RoomPlan or ArchiBIM wall as reference' unless groups.length == 1
@@ -71,7 +71,7 @@ module SSDigitalLab
                        id: item[:id], name: item[:name] }
         Diagnostics.log('wall_straighten_reference', @reference)
         Sketchup.status_text = "ArchiBIM reference: #{item[:name]} at #{item[:angle].round(3)}°"
-        UI.messagebox("Reference stored: #{item[:name]} (#{item[:angle].round(2)}°). Select other walls and set mode to 'Relative to reference'.")
+        UI.messagebox("Reference stored: #{item[:name]} (#{item[:angle].round(2)}°). Select other walls and set mode to 'Relative to reference'.") unless silent
         @reference
       end
 
@@ -130,12 +130,12 @@ module SSDigitalLab
         items
       end
 
-      def apply(mode: 'orthogonal', tolerance: 5.0)
+      def apply(mode: 'orthogonal', tolerance: 5.0, silent: false)
         model = Sketchup.active_model
         data = plan(mode: mode, tolerance: tolerance)
         changed = data[:items].select { |item| item[:status] == 'correct' }
         if changed.empty?
-          UI.messagebox('Nothing to correct within the selected angle tolerance. Use Preview to inspect.')
+          UI.messagebox('Nothing to correct within the selected angle tolerance. Use Preview to inspect.') unless silent
           return { modified: 0, skipped: data[:items].size }
         end
         context = data[:context]
@@ -176,7 +176,7 @@ module SSDigitalLab
         Sketchup.status_text = "ArchiBIM: straightened #{changed.size} wall(s) about their midpoint"
         model.active_view.invalidate
         ArchiBIM.refresh_panel
-        UI.messagebox("Straightened #{changed.size} wall(s) in one Undo step. #{report[:skipped]} skipped. Scan wall joints may need review. Original mesh faces and tags remain unchanged.")
+        UI.messagebox("Straightened #{changed.size} wall(s) in one Undo step. #{report[:skipped]} skipped. Scan wall joints may need review. Original mesh faces and tags remain unchanged.") unless silent
         report
       end
     end
