@@ -16,7 +16,7 @@ module SSDigitalLab
       # Conservative heuristics. Results are candidates, never asserted BIM elements.
       # Dimensions are world-aligned bounding-box spans, not certified measurements.
       def infer(labels, dimensions_mm, planes = {})
-        label = labels.join(' ').downcase
+        label = labels.join(' ').downcase.tr('_-', '  ')
         kind = case label
                when /\b(?:walls?|partitions?)\b/ then 'wall'
                when /\b(?:floors?|slabs?)\b/ then 'floor'
@@ -76,6 +76,7 @@ module SSDigitalLab
         area = { 'horizontal_area_m2' => 0.0, 'vertical_area_m2' => 0.0,
                  'sloping_area_m2' => 0.0 }
         visited = 0
+        local_tags = Hash.new(0)
         entities.each do |child|
           next unless child.valid?
           visited += 1
@@ -84,7 +85,10 @@ module SSDigitalLab
             break
           end
           tag = child.layer&.name.to_s
-          tag_counts[tag] += 1 unless tag.empty?
+          unless tag.empty?
+            tag_counts[tag] += 1
+            local_tags[tag] += 1
+          end
           if child.is_a?(Sketchup::Face)
             counts['faces_sampled'] += 1
             sample = plane_sample(child, transform)
@@ -96,7 +100,7 @@ module SSDigitalLab
           end
         end
         area.transform_values! { |v| v.round(4) }
-        counts.merge(area)
+        counts.merge(area).merge('sampled_tags' => local_tags.sort.to_h)
       end
 
       def report(model)
@@ -131,7 +135,7 @@ module SSDigitalLab
           transform = parent_transform * entity.transformation
           dimensions = bounds_mm(entity.bounds, parent_transform)
           child_stats = summarize_children(definition.entities, transform, tags)
-          prediction = infer([name, definition.name.to_s, tag], dimensions, child_stats)
+          prediction = infer([name, definition.name.to_s, tag] + child_stats['sampled_tags'].keys, dimensions, child_stats)
           candidates << {
             'persistent_id' => entity.persistent_id,
             'path' => (path + [name]).join(' / ')[0, 500],
@@ -168,7 +172,11 @@ module SSDigitalLab
           'selected_entities' => selected.length,
           'root_sample' => root_samples,
           'containers_inspected' => visited_count,
-          'tags' => tags.sort.to_h,
+          'sampled_tag_occurrences' => tags.sort.to_h,
+          'tag_definitions' => model.layers.map do |layer|
+            { 'name' => layer.name, 'visible' => layer.visible?,
+              'folder' => (layer.respond_to?(:folder) ? layer.folder&.name : nil) }
+          end.sort_by { |tag| tag['name'] },
           'candidates' => candidates,
           'warnings' => warnings.uniq,
           'model_modified' => false
