@@ -228,31 +228,48 @@ module SSDigitalLab
       end
 
       def self.transom_assembly(child, opening, model, y0, y1, outer)
-        return nil unless opening.fetch('transom', false)
-        x = opening['offset'].to_f
-        z = opening['sill'].to_f
-        w = opening['width'].to_f
-        h = opening['height'].to_f
-        transom = opening.fetch('transom_height', 450.0).to_f
-        bar = [[outer, 20.0].max, 60.0].min
-        split = z + h - transom
+        return nil unless opening.fetch('transom',false)
+        x=opening['offset'].to_f
+        z=opening['sill'].to_f
+        width=opening['width'].to_f
+        height=opening['height'].to_f
+        transom=opening.fetch('transom_height',450.0).to_f
+        bar=[[outer,20.0].max,60.0].min
+        split=z+height-transom
         if opening.fetch('style','solid') == 'glass_frameless'
-          y0 = (y0 + y1) / 2.0 - 25
-          y1 = y0 + 50
+          y0=(y0+y1)/2.0-25.0
+          y1=y0+50.0
         end
-        rail = child.entities.add_group
-        rail.name = 'Transom horizontal framing'
-        rail.material = material(model,'frame')
-        box(rail.entities,x+outer,x+w-outer,y0,y1,split-bar/2,split+bar/2)
-        pane = child.entities.add_group
-        pane.name = 'Upper fixed transom glass'
-        pane.material = material(model,'glass')
-        glass = opening.fetch('glass_thickness',3.0).to_f
-        cy = (y0+y1)/2.0
-        box(pane.entities,x+outer+5,x+w-outer-5,cy-glass/2,cy+glass/2,
-            split+bar/2+5,z+h-outer-5)
-        split - bar / 2.0
+        rail=child.entities.add_group
+        rail.name='Transom horizontal frame'
+        rail.material=material(model,'frame')
+        box(rail.entities,x+outer,x+width-outer,y0,y1,split-bar/2.0,split+bar/2.0)
+        glass=opening.fetch('glass_thickness',3.0).to_f
+        cy=(y0+y1)/2.0
+        count=Core.transom_panel_count(width)
+        usable=width-2*outer
+        bay=usable/count
+        count.times do |i|
+          x0=x+outer+i*bay+5.0
+          x1=x+outer+(i+1)*bay-5.0
+          next unless x1>x0+5.0
+          pane=child.entities.add_group
+          pane.name="Fixed transom glass #{i+1}/#{count} (maximum 1200mm bay)"
+          pane.material=material(model,'glass')
+          box(pane.entities,x0,x1,cy-glass/2.0,cy+glass/2.0,
+              split+bar/2.0+5.0,z+height-outer-5.0)
+          next if i==count-1
+          post=child.entities.add_group
+          post.name='Transom vertical mullion'
+          post.material=material(model,'frame')
+          px=x+outer+(i+1)*bay
+          m=[bar,30.0].min
+          box(post.entities,px-m/2.0,px+m/2.0,y0,y1,
+              split+bar/2.0,z+height-outer)
+        end
+        split-bar/2.0
       end
+
     end
   end
 end
