@@ -273,13 +273,7 @@ module SSDigitalLab
         # One transom light per lower window sash: N lights = N-1 posts.
         # Door transoms may use their specified leaf count; fallback retains
         # the fabrication-friendly 1200mm upper panel rule for legacy doors.
-        count = if opening['kind'] == 'window'
-                  [[opening.fetch('panels',Core.window_panel_count(width)).to_i,1].max,20].min
-                elsif opening.key?('panels')
-                  [[opening['panels'].to_i,1].max,20].min
-                else
-                  Core.transom_panel_count(width)
-                end
+        count = Core.transom_layout_count(opening)
         usable=width-2*outer
         bay=usable/count
         count.times do |i|
