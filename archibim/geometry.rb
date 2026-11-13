@@ -55,6 +55,13 @@ module SSDigitalLab
       end
 
       def self.quad(entities, coords, normal)
+        # Acute/angled wall joins can legitimately collapse one boundary face
+        # to zero area. SketchUp raises "Duplicate points in array" if passed
+        # coincident polygon vertices; skip only those degenerate faces.
+        duplicate = coords.combination(2).any? do |a,b|
+          Math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2) < 0.0001
+        end
+        return nil if duplicate
         face = entities.add_face(coords.map { |c| point(*c) })
         return unless face && face.valid?
         expected = Geom::Vector3d.new(*normal)
