@@ -9,7 +9,9 @@ require_relative 'wall_graph'
 require_relative 'geometry'
 require_relative 'repair'
 require_relative 'diagnostics'
+require_relative 'wall_angle_math'
 require_relative 'tools'
+require_relative 'wall_straighten'
 require_relative 'connected_move'
 require_relative 'line_wall_adapter'
 require_relative 'scan_audit'
@@ -19,7 +21,7 @@ require_relative 'dxf_export'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.8.3'
+    VERSION = '0.8.4'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
@@ -1445,6 +1447,15 @@ module SSDigitalLab
       dialog.add_action_callback('reconnect_wall') { |_ctx| callback_safe { reconnect_wall } }
       dialog.add_action_callback('scan_wall_connections') { |_ctx| callback_safe { scan_wall_connections } }
       dialog.add_action_callback('convert_lines_to_walls') { |_ctx| callback_safe { convert_selected_lines_to_walls } }
+      dialog.add_action_callback('straighten_preview') do |_ctx, mode, tolerance|
+        callback_safe { WallStraighten.preview(mode: mode.to_s, tolerance: Float(tolerance)) }
+      end
+      dialog.add_action_callback('straighten_apply') do |_ctx, mode, tolerance|
+        callback_safe { WallStraighten.apply(mode: mode.to_s, tolerance: Float(tolerance)) }
+      end
+      dialog.add_action_callback('straighten_reference') do |_ctx|
+        callback_safe { WallStraighten.set_reference }
+      end
       dialog.add_action_callback('audit_ipad_scan') do |_ctx|
         callback_safe do
           result = ScanAudit.export
@@ -1554,6 +1565,10 @@ module SSDigitalLab
       end
       tools.add_item('Draw wall') { Sketchup.active_model.select_tool(DrawTool.new('wall')) }
       tools.add_item('Convert connected lines to BIM walls') { callback_safe { convert_selected_lines_to_walls } }
+      tools.add_item('Preview straightening selected walls') { callback_safe { WallStraighten.preview } }
+      tools.add_item('Straighten selected walls (90°, 5° tolerance)') { callback_safe { WallStraighten.apply } }
+      tools.add_item('Set reference wall for straightening') { callback_safe { WallStraighten.set_reference } }
+      tools.add_item('Straighten selected walls relative to reference') { callback_safe { WallStraighten.apply(mode: 'reference') } }
       tools.add_item('Analyze iPad scan (read-only JSON)') do
         callback_safe do
           result = ScanAudit.export
