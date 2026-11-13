@@ -106,7 +106,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <div class="panel"><div class="eyebrow">Across all BIM walls</div><h2>Multi-select doors &amp; windows</h2>
    <p class="hint">Tick multiple openings, including openings hosted by different walls. Leave a field blank or choose Keep unchanged to avoid modifying it. One operation, one Undo. Invalid/overlapping updates abort the whole batch.</p>
    <div class="flex" style="gap:8px;align-items:center"><button class="btn outline small" data-action="selectAllOpenings">Select all</button><button class="btn outline small" data-action="clearOpeningSelection">Clear</button></div>
-   <div id="openingBulkList"></div>
+   <p id="bulkSelectionCount" class="hint">0 selected</p><div id="openingBulkList"></div>
  </div>
  <div class="panel"><h2>Apply to checked openings</h2>
    <div class="grid">
@@ -217,6 +217,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       return field(`cfg_${key}`,label,fmm(value));
     }).join('');
     def.fields.forEach(([key])=>{const el=$('cfg_'+key);if(el)el.dataset.setting=key;});
+    refreshOpeningDependencies();
   }
   function presets(){
     renderToolEditor();
@@ -297,7 +298,59 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
         <p class="hint">Defaults use Build presets. Offset is measured from the wall start.</p>${btn('Add opening','addOpening','primary full')}</div>`;
     }
     $('inspector').innerHTML=content;
+    refreshOpeningDependencies();
   }
+  function renderBulkOpenings(){
+    const catalog=state.opening_catalog||[];
+    const known=new Set(catalog.map(o=>o.id));
+    for(const id of selectedOpeningIds){if(!known.has(id))selectedOpeningIds.delete(id);}
+    const el=$('openingBulkList');
+    if(!el)return;
+    el.innerHTML=catalog.length?catalog.map(o=>`
+      <div class="listrow" style="${state.highlighted_opening_id===o.id?'outline:2px solid #ffbf45;':''}">
+        <div class="flex" style="align-items:center">
+          <label class="grow" style="margin:0;cursor:pointer">
+            <input type="checkbox" class="bulk-opening-check" data-opening-id="${html(o.id)}"
+              style="width:auto;margin-right:8px" ${selectedOpeningIds.has(o.id)?'checked':''}>
+            <b>${html(o.kind.toUpperCase())}</b> · ${html(o.wall_name)}
+          </label>
+          ${btn('Highlight','highlightOpening','outline small',`data-id="${html(o.id)}"`)}
+        </div>
+        <div class="hint">${html(o.id.slice(0,8))} · ${html(o.width)} × ${html(o.height)}mm
+        ${o.kind==='door'?' · '+html(o.style):o.kind==='window'?' · '+html(o.operation):''}</div>
+      </div>`).join(''):'<p class="hint">No parametric BIM openings in model yet.</p>';
+    const selectedCount=selectedOpeningIds.size;
+    const caption=document.getElementById('bulkSelectionCount');
+    if(caption)caption.textContent=selectedCount+' selected of '+catalog.length;
+  }
+
+  function refreshOpeningDependencies(){
+    document.querySelectorAll('[id^="transomRow_"]').forEach(row=>{
+      const id=row.id.replace('transomRow_','');
+      row.style.display=$('o_'+id+'_transom')?.checked?'':'none';
+    });
+    document.querySelectorAll('.opening-swing-options').forEach(row=>{
+      const id=row.dataset.opening;
+      const o=(state.selected?.openings||[]).find(o=>o.id===id);
+      row.style.display=o?.kind==='sliding_door' ||
+        (o?.kind==='door'&&$('o_'+id+'_leafless')?.checked) ||
+        (o?.kind==='window'&&from('o_'+id+'_operation')==='fixed')?'none':'';
+    });
+    const glassProps=$('wallGlazingProperties');
+    if(glassProps)glassProps.style.display=from('p_wall_type')==='glass'?'':'none';
+    const isGlass=from('cfg_wall_type')==='glass';
+    ['glass_wall_frame','glass_wall_frame_width','glass_wall_glass_thickness'].forEach(k=>{
+      const el=$('cfg_'+k);
+      if(el)el.closest('div').style.display=isGlass?'':'none';
+    });
+    if(activeTool==='door'){
+      const passage=$('cfg_door_leafless')?.checked===true;
+      ['door_style','door_handle','door_transom','door_transom_height'].forEach(k=>{
+        const el=$('cfg_'+k);if(el)el.closest('div').style.display=passage?'none':'';
+      });
+    }
+  }
+
   function renderLevels(){
     $('levelRows').innerHTML=state.levels.map(l=>`<div class="listrow"><div class="flex" style="margin-bottom:8px"><div class="grow"><b>${html(l.name)}</b> ${l.id===state.active_level?'<span class="pill">ACTIVE</span>':''}</div>${btn('Select','pickLevel','outline small',`data-id="${html(l.id)}"`)}</div><div class="grid"><div><label for="ln_${html(l.id)}">Name</label><input id="ln_${html(l.id)}" value="${html(l.name)}"></div><div><label for="lz_${html(l.id)}">Elevation</label><input id="lz_${html(l.id)}" type="text" value="${html(fmm(l.elevation))}"></div></div><div class="flex" style="margin-top:9px">${btn('Update','editLevel','outline small',`data-id="${html(l.id)}"`)}${btn('Delete','deleteLevel','danger small',`data-id="${html(l.id)}"`)}</div></div>`).join('');
     $('currentLevel').innerHTML=state.levels.map(l=>`<option value="${html(l.id)}" ${l.id===state.active_level?'selected':''}>${html(l.name)} · ${html(fmm(l.elevation))}</option>`).join('');
@@ -320,14 +373,35 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const content=item?`<div class="notice" style="margin-top:10px"><b>Wall scan · ${html(item.at||'')}</b><p>${html(item.message)}</p>${item.report?`<p class="hint">${html(JSON.stringify(item.report))}</p>`:''}</div>`:'';
     ['graphFeedbackBuild','graphFeedbackSelected','graphFeedbackTop'].forEach(id=>{const el=$(id);if(el)el.innerHTML=content;});
   }
-  window.ArchiBIM={receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}}};
+  window.ArchiBIM={receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}}};
   $('currentLevel').addEventListener('change',e=>call('active_level',e.target.value));
   $('autoRepairScale').addEventListener('change',e=>call('settings',{auto_repair_scale:e.target.checked}));
   $('autoWallJoin').addEventListener('change',e=>call('settings',{auto_wall_join:e.target.checked}));
   $('toolConfigurator').addEventListener('change',e=>{
     const k=e.target.dataset.setting;if(!k)return;
     const value=e.target.type==='checkbox'?e.target.checked:e.target.value;
-    call('settings',{[k]:value});
+    if(k==='wall_type'){
+      const preset={brick:[150,3000],partition:[100,3000],glass:[50,2100]}[value];
+      call('settings',{wall_type:value,wall_thickness:preset[0],wall_height:preset[1]});
+    }else{
+      call('settings',{[k]:value});
+    }
+    refreshOpeningDependencies();
+  });
+  document.body.addEventListener('change',e=>{
+    if(e.target.classList.contains('bulk-opening-check')){
+      const id=e.target.dataset.openingId;
+      if(e.target.checked)selectedOpeningIds.add(id);else selectedOpeningIds.delete(id);
+      const label=$('bulkSelectionCount');if(label)label.textContent=selectedOpeningIds.size+' selected';
+    }
+    if(e.target.id==='p_wall_type'){
+      const preset={brick:[150,3000],partition:[100,3000],glass:[50,2100]}[e.target.value];
+      if(preset){$('p_thickness').value=preset[0]+'mm';$('p_height').value=preset[1]+'mm';}
+    }
+    if(e.target.id.includes('_operation')||e.target.id.includes('_transom')||
+       e.target.id.includes('_leafless')||e.target.id==='p_wall_type'){
+      refreshOpeningDependencies();
+    }
   });
   document.body.addEventListener('click',e=>{
     const target=e.target.closest('button');if(!target)return;
@@ -343,6 +417,16 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'addOpening':{const choice=from('newOpeningKind');const kind=choice==='passage'?'door':choice;call('add_opening',kind,{offset:from('newOpeningOffset'),...(choice==='passage'?{leafless:true}:{})});break;}
       case 'editOpening':{const patch={};['offset','width','height','sill','hinge','swing','marker','mount','slide_direction','style','handle','operation','outer_frame','inner_frame','glass_thickness','panels','transom_height'].forEach(k=>{const v=from('o_'+id+'_'+k);if(v!==undefined)patch[k]=v;});const kind=state.selected?.openings?.find(o=>o.id===id)?.kind;if(kind==='door')patch.leafless=$('o_'+id+'_leafless').checked;if(kind!=='sliding_door')patch.transom=$('o_'+id+'_transom')?.checked===true;call('edit_opening',id,patch);break;}
       case 'moveOpening':call('move_opening_tool',id);break;
+      case 'highlightOpening':call('highlight_opening',id);break;
+      case 'selectAllOpenings':(state.opening_catalog||[]).forEach(o=>selectedOpeningIds.add(o.id));renderBulkOpenings();break;
+      case 'clearOpeningSelection':selectedOpeningIds.clear();renderBulkOpenings();break;
+      case 'applyBulkOpenings':{
+        const fields=['width','height','sill','transom_height','hinge','swing','style','handle','operation','transom'];
+        const patch={};fields.forEach(k=>{const v=from('bulk_'+k);if(v!=='')patch[k]=k==='transom'?(v==='true'):v;});
+        if(!selectedOpeningIds.size){announce('Select at least one door or window first.');break;}
+        if(!Object.keys(patch).length){announce('Choose one property to change.');break;}
+        call('batch_update_openings',Array.from(selectedOpeningIds),patch);break;
+      }
       case 'connectedMove':call('connected_move_tool');break;
       case 'changeJoin':call('connection_mode',id,from('jmode_'+target.dataset.joinIndex));break;
       case 'unlinkWholeWall':if(confirm('Unlink all joints for this wall? Wall solids and hosted openings are preserved.'))call('unlink_entire_wall');break;
