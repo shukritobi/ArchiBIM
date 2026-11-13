@@ -270,7 +270,16 @@ module SSDigitalLab
         box(rail.entities,x+outer,x+width-outer,y0,y1,split-bar/2.0,split+bar/2.0)
         glass=opening.fetch('glass_thickness',3.0).to_f
         cy=(y0+y1)/2.0
-        count=Core.transom_panel_count(width)
+        # One transom light per lower window sash: N lights = N-1 posts.
+        # Door transoms may use their specified leaf count; fallback retains
+        # the fabrication-friendly 1200mm upper panel rule for legacy doors.
+        count = if opening['kind'] == 'window'
+                  [[opening.fetch('panels',Core.window_panel_count(width)).to_i,1].max,20].min
+                elsif opening.key?('panels')
+                  [[opening['panels'].to_i,1].max,20].min
+                else
+                  Core.transom_panel_count(width)
+                end
         usable=width-2*outer
         bay=usable/count
         count.times do |i|
