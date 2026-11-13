@@ -67,7 +67,7 @@ module SSDigitalLab
             z1 = zb - ((zb-height).abs < EPS && framed ? border+3.0 : 0.0)
             x0 += mullion/2.0+3.0 if cut.call(xa,stations)
             x1 -= mullion/2.0+3.0 if cut.call(xb,stations)
-            z0 += border+3.0 if cut.call(za,transoms)
+            z0 += transom_width(wall)+3.0 if cut.call(za,transoms)
             z1 -= 3.0 if cut.call(zb,transoms)
             # Small clearance at open jamb/sill/head boundaries.
             openings.each do |o|
