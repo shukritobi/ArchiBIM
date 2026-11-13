@@ -25,7 +25,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 .panel-toggle{width:100%;display:block;margin:0 0 10px;padding:7px 10px;background:#1b3041;color:#abe8dc;border:1px solid #456078;border-radius:7px;font-weight:750;text-align:left;font-size:11px;cursor:pointer}
 .panel.folded > :not(.panel-toggle){display:none!important}
 </style></head><body>
-<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.6</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
+<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.7</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
 <nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="openings">Openings</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
 <main>
 <div id="actionFeedback" class="ui-status" role="status" aria-live="polite" aria-atomic="true">Ready. Select a tool or element to begin.</div>
@@ -172,7 +172,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <div class="panel"><div class="eyebrow">Proportional plan resizing</div><h2>Resize BIM footprint</h2><div class="grid"><div><label for="footprintPercent">Plan scale (%)</label><input type="number" min="5" max="500" step="any" id="footprintPercent" value="80"></div><div style="align-self:end"><button class="btn outline full" data-action="resizeFootprint">Resize footprint</button></div></div><p class="hint">Changes wall runs, footprint and host positions while keeping wall thickness, door/window sizes and element heights. Test on a copy first. This is an explicit parametric command, not automatic interception of SketchUp's native Scale tool.</p></div>
  <div class="notice">Automatic two-wall miters and single-branch T-cuts are preliminary. Multi-way joins, dissimilar-level joins, true family types and full IFC interoperability require further development and desktop testing.</div>
 </section>
-<div class="footer">SS DIGITAL LAB · ARCHIBIM v0.8.6</div>
+<div class="footer">SS DIGITAL LAB · ARCHIBIM v0.8.7</div>
 </main>
 <script>
 (function(){
