@@ -98,7 +98,7 @@ module SSDigitalLab
             raise ArgumentError, 'Unknown door handle' unless %w[lever round_knob pull].include?(raw[key])
             h[key] = raw[key]
           elsif key == 'window_hinge'
-            raise ArgumentError, 'Window hinge must be left/right/top' unless %w[left right top].include?(raw[key])
+            raise ArgumentError, 'Window hinge must be left/right/top/bottom' unless %w[left right top bottom].include?(raw[key])
             h[key] = raw[key]
           elsif key == 'window_operation'
             raise ArgumentError, 'Unknown window operation' unless %w[casement fixed].include?(raw[key])
