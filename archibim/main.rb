@@ -1046,6 +1046,10 @@ module SSDigitalLab
       if patch.key?('panels') && %w[window sliding_door].include?(open['kind'])
         open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: open['kind']=='window' ? 20 : 4, allow_zero: true).to_i
       end
+      if open['kind']=='door' && %w[glass_frameless glass_framed].include?(open.fetch('style','solid')) &&
+          open.fetch('glass_thickness',3.0).to_f < 8.0
+        open['glass_thickness']=settings['door_glass_thickness']
+      end
       Core.validate_opening_options!(open)
       raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
       raise 'Invalid sliding direction' unless %w[left right].include?(open.fetch('slide_direction','left'))
