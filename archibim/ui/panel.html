@@ -106,6 +106,9 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <div class="panel subtle"><h3>Quick start</h3><p class="hint">Generate a 8 × 6 m example with 4 editable walls, a door, a window and a slab.</p><button class="btn outline full" data-action="demo">Create demo model</button></div>
 </section>
 <section class="pane" id="pane-properties">
+ <div class="panel subtle"><div class="eyebrow">NEW · Copy BIM properties</div>
+ <button class="btn primary full" data-action="propertyEyedropper">Eyedropper · Pick source, then target</button>
+ <p class="hint">Same element type only. Copies height and compatible construction settings while preserving the target width, length, position, sill, host, existing openings and identity. Click multiple targets or Esc to exit.</p></div>
  <div id="inspector"></div>
 </section>
 <section class="pane" id="pane-levels">
@@ -488,6 +491,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'backTools':activeTool=null;renderToolEditor();break;
       case 'openingPath':if(activeTool)call('opening_path_tool',activeTool);break;
       case 'pickOpenings':call('opening_pick_tool');break;
+      case 'propertyEyedropper':call('property_eyedropper_tool');break;
       case 'openingSchedule':call('opening_schedule');break;
       case 'windowPreset':call('window_preset',target.dataset.preset);break;
       case 'activateTool':if(activeTool)call('tool',activeTool);break;

@@ -55,6 +55,13 @@ module SSDigitalLab
       end
 
       def self.quad(entities, coords, normal)
+        # Acute/angled wall joins can legitimately collapse one boundary face
+        # to zero area. SketchUp raises "Duplicate points in array" if passed
+        # coincident polygon vertices; skip only those degenerate faces.
+        duplicate = coords.combination(2).any? do |a,b|
+          Math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2) < 0.0001
+        end
+        return nil if duplicate
         face = entities.add_face(coords.map { |c| point(*c) })
         return unless face && face.valid?
         expected = Geom::Vector3d.new(*normal)
@@ -293,12 +300,16 @@ module SSDigitalLab
             panes.each_with_index do |(left,right,min_z,max_z),index|
               if opening.fetch('hinge','left') == 'top'
                 mid_x=(left+right)/2.0
-                symbol_edge(elev,dashed,[left,y,min_z],[mid_x,y,max_z])
-                symbol_edge(elev,dashed,[mid_x,y,max_z],[right,y,min_z])
+                apex_z=marker=='hinge' ? max_z : min_z
+                edge_z=marker=='hinge' ? min_z : max_z
+                symbol_edge(elev,dashed,[left,y,edge_z],[mid_x,y,apex_z])
+                symbol_edge(elev,dashed,[mid_x,y,apex_z],[right,y,edge_z])
                 next
               end
-              hinge_left_at=panes.length == 2 ? index.zero? : index.even?
-              hinge_left_at=!hinge_left_at if side.negative?
+              hinge_left_at=panes.length == 1 ? opening.fetch('hinge','left') != 'right' :
+                (panes.length == 2 ? index.zero? : index.even?)
+
+              # Reverse views mirror automatically: do not invert the hinge twice.
               marked_left=marker=='hinge' ? hinge_left_at : !hinge_left_at
               point_x,far_x=marked_left ? [left,right] : [right,left]
               mid_z=(min_z+max_z)/2.0
@@ -318,7 +329,8 @@ module SSDigitalLab
           [-1.0,1.0].each do |side|
             y=mid_y+side*(thickness/2.0+0.55)
             point_left=marker=='hinge' ? hinge_left : !hinge_left
-            point_left=!point_left if side.negative?
+
+            # Reverse-facing elevation mirrors in view, not in world geometry.
             point_x,far_x=point_left ? [left,right] : [right,left]
             next unless right>left && max_z>min_z
             mid_z=(min_z+max_z)/2.0

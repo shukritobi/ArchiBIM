@@ -79,6 +79,7 @@ module SSDigitalLab
         Sketchup.status_text='Opening created. Click first point to begin another.'
         view.invalidate
       rescue StandardError => error
+        Diagnostics.error('opening_path_tool',error)
         UI.messagebox("ArchiBIM opening path: #{error.message}")
       end
 
@@ -99,6 +100,7 @@ module SSDigitalLab
         @start_x=nil;@start_wall=nil;@anchor=nil
         view.invalidate
       rescue StandardError => error
+        Diagnostics.error('opening_path_width',error)
         UI.messagebox("ArchiBIM path width: #{error.message}")
       end
 

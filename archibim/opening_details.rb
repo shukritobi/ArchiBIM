@@ -110,8 +110,16 @@ module SSDigitalLab
             partition=entities.add_group
             partition.name='Partition Above | solid box-up'
             partition.material=material(model,'wall')
-            box(partition.entities,0,length,cy-partition_t/2.0,cy+partition_t/2.0,
-                height,height+partition_h)
+            # Use the same join-aware solid mesh as ordinary partitions.
+            # The overlay remains a child of its glass wall so moving, scaling,
+            # rebuilding and deleting the parent cannot orphan the box-up.
+            overlay={
+              'length'=>length,'height'=>partition_h,
+              'thickness'=>partition_t,'alignment'=>'center',
+              'openings'=>[],'joins'=>wall.fetch('partition_joins',{})
+            }
+            wall_mesh(partition.entities,overlay)
+            partition.transform!(Geom::Transformation.translation([0,cy.mm,height.mm]))
             soften_coplanar_wall_edges(partition.entities)
           end
         end
@@ -145,12 +153,17 @@ module SSDigitalLab
       end
 
       def self.round_cylinder(entities, origin, direction, radius_mm, length_mm)
+        # Every hardware piece is isolated: overlapping bores/lever barrels
+        # previously merged into one group, invalidating the group during
+        # pushpull (SketchUp: "reference to deleted Group").
+        solid=entities.add_group
         vector=Geom::Vector3d.new(*direction)
-        circle=entities.add_circle(point(*origin),vector,radius_mm.mm,24)
-        face=entities.add_face(circle)
-        return unless face
+        circle=solid.entities.add_circle(point(*origin),vector,radius_mm.mm,24)
+        face=solid.entities.add_face(circle)
+        return nil unless face && face.valid?
         face.reverse! if face.normal.dot(vector)<0
         face.pushpull(length_mm.mm)
+        solid
       end
 
       def self.door_hardware(child, opening, model, y, lower_z, upper_z, style)
@@ -257,7 +270,10 @@ module SSDigitalLab
         box(rail.entities,x+outer,x+width-outer,y0,y1,split-bar/2.0,split+bar/2.0)
         glass=opening.fetch('glass_thickness',3.0).to_f
         cy=(y0+y1)/2.0
-        count=Core.transom_panel_count(width)
+        # One transom light per lower window sash: N lights = N-1 posts.
+        # Door transoms may use their specified leaf count; fallback retains
+        # the fabrication-friendly 1200mm upper panel rule for legacy doors.
+        count = Core.transom_layout_count(opening)
         usable=width-2*outer
         bay=usable/count
         count.times do |i|
