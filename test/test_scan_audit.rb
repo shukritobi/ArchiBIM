@@ -7,6 +7,9 @@ class TestScanAudit < Minitest::Test
   def test_name_guided_wall
     assert_equal 'wall', A.infer(['RoomPlan | Walls'], [150, 5000, 3000])[:kind]
   end
+  def test_underscored_roomplan_tag
+    assert_equal 'wall', A.infer(['RoomPlan_Walls'], [150, 6000, 3000])[:kind]
+  end
   def test_name_guided_joinery
     assert_equal 'cabinet', A.infer(['Pantry cabinets'], [600, 2000, 850])[:kind]
   end
