@@ -8,6 +8,7 @@ require_relative 'junctions'
 require_relative 'wall_graph'
 require_relative 'geometry'
 require_relative 'opening_details'
+require_relative 'opening_workflow'
 require_relative 'repair'
 require_relative 'diagnostics'
 require_relative 'wall_angle_math'
@@ -1408,6 +1409,8 @@ module SSDigitalLab
         'wall_connections' => (data && data['kind'] == 'wall' ? wall_connections_payload(data['id']) : []),
         'graph_feedback' => @graph_feedback,
         'tags' => tags_payload,
+        'opening_catalog' => opening_catalog,
+        'highlighted_opening_id' => highlight_opening_id,
         'line_styles' => Sketchup.active_model.line_styles.names }
 
     end
@@ -1527,6 +1530,13 @@ module SSDigitalLab
         end
       end
       dialog.add_action_callback('edit_opening') { |_ctx, id, patch| callback_safe { patch_opening(id, patch) } }
+      dialog.add_action_callback('highlight_opening') { |_ctx, id| callback_safe { highlight_opening(id) } }
+      dialog.add_action_callback('batch_update_openings') do |_ctx, ids, patch|
+        callback_safe do
+          report = batch_update_openings(ids, patch)
+          UI.messagebox("Updated #{report['updated']} opening(s) on #{report['walls']} wall(s). #{report['skipped']} incompatible selection(s) skipped.")
+        end
+      end
       dialog.add_action_callback('delete_opening') { |_ctx, id| callback_safe { remove_opening(id) } }
       dialog.add_action_callback('csv') { |_ctx| callback_safe { export_csv } }
       dialog.add_action_callback('json') { |_ctx| callback_safe { export_json } }
