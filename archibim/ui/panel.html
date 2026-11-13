@@ -22,6 +22,8 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   .qty{font-size:10.5px}.qty th,.qty td{padding:7px 5px}
 }
 @media (max-width:340px){.grid.tools{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:minmax(0,1fr)}}
+.panel-toggle{width:100%;display:block;margin:0 0 10px;padding:7px 10px;background:#1b3041;color:#abe8dc;border:1px solid #456078;border-radius:7px;font-weight:750;text-align:left;font-size:11px;cursor:pointer}
+.panel.folded > :not(.panel-toggle){display:none!important}
 </style></head><body>
 <header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.6</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
 <nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="openings">Openings</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
@@ -31,7 +33,8 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 <section class="pane active" id="pane-build">
  <div class="panel"><div class="eyebrow">Project working level</div><label for="currentLevel">Active floor / story</label><div class="flex"><select class="grow" id="currentLevel"></select><button class="btn outline small" data-tab="levels">Manage</button></div><p class="hint">All new building elements will be assigned to this elevation and tag.</p></div>
  <div class="panel"><div class="eyebrow">Viewport</div><button class="btn primary full" data-action="resetCamera">Fit whole house · Perspective</button><p class="hint">Returns to a three-quarter perspective camera and frames all ArchiBIM elements.</p></div>
- <div class="panel" id="toolPicker"><div class="eyebrow">Architectural tools</div><div class="grid tools">
+ <div class="panel" id="toolPicker"><div class="eyebrow">Architectural tools</div>
+ <input id="toolSearch" aria-label="Search architectural tools" placeholder="Find wall, door, glass, slab..." style="margin-bottom:8px"><div class="grid tools">
  <button class="tool" data-tool="wall"><span class="icon">▥</span><b>Wall</b><span>Click two points</span></button>
  <button class="tool" data-tool="door"><span class="icon">▤</span><b>Door</b><span>Click hosted wall</span></button>
  <button class="tool" data-tool="sliding_door"><span class="icon">⇄</span><b>Sliding door</b><span>Hosted glazed panels</span></button>
@@ -160,6 +163,19 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 (function(){
   let state = {settings:{}, levels:[], selected:null, report:{elements:[],openings:[],summary:{},cost:0},active_level:'GF'};
   let activeTool = null;
+  const foldedPanels=new Set();
+  function installFolds(){
+    document.querySelectorAll('.pane > .panel').forEach((panel,index)=>{
+      if(panel.dataset.foldInit)return;panel.dataset.foldInit='1';
+      const key=panel.id||panel.closest('.pane').id+'-'+index;
+      const title=panel.querySelector('h2,h3,.eyebrow')?.textContent?.trim()||'Details';
+      const button=document.createElement('button');button.type='button';
+      button.className='panel-toggle';button.dataset.foldKey=key;
+      button.textContent='▾ '+title;button.setAttribute('aria-expanded','true');
+      panel.insertBefore(button,panel.firstChild);
+      if(foldedPanels.has(key)){panel.classList.add('folded');button.textContent='▸ '+title;button.setAttribute('aria-expanded','false');}
+    });
+  }
   const selectedOpeningIds=new Set();
   let tab = 'build';
   const $ = id => document.getElementById(id);
@@ -401,7 +417,11 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const content=item?`<div class="notice" style="margin-top:10px"><b>Wall scan · ${html(item.at||'')}</b><p>${html(item.message)}</p>${item.report?`<p class="hint">${html(JSON.stringify(item.report))}</p>`:''}</div>`:'';
     ['graphFeedbackBuild','graphFeedbackSelected','graphFeedbackTop'].forEach(id=>{const el=$(id);if(el)el.innerHTML=content;});
   }
-  window.ArchiBIM={receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}}};
+  window.ArchiBIM={receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}installFolds();}};
+  $('toolSearch').addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase();
+    document.querySelectorAll('#toolPicker button.tool').forEach(el=>{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';});
+  });
   $('currentLevel').addEventListener('change',e=>call('active_level',e.target.value));
   $('autoRepairScale').addEventListener('change',e=>call('settings',{auto_repair_scale:e.target.checked}));
   $('autoWallJoin').addEventListener('change',e=>call('settings',{auto_wall_join:e.target.checked}));
@@ -433,6 +453,14 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   });
   document.body.addEventListener('click',e=>{
     const target=e.target.closest('button');if(!target)return;
+    if(target.classList.contains('panel-toggle')){
+      const panel=target.parentElement,key=target.dataset.foldKey;
+      const closed=panel.classList.toggle('folded');
+      if(closed)foldedPanels.add(key);else foldedPanels.delete(key);
+      target.textContent=(closed?'▸ ':'▾ ')+target.textContent.slice(2);
+      target.setAttribute('aria-expanded',closed?'false':'true');
+      return;
+    }
     if(target.dataset.tab){showTab(target.dataset.tab);return;}
     if(target.dataset.tool){activeTool=target.dataset.tool;renderToolEditor();showTab('build');call('tool',target.dataset.tool);return;}
     const a=target.dataset.action,id=target.dataset.id;
