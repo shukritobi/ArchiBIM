@@ -38,6 +38,18 @@ class TestGlazingLayout < Minitest::Test
     opening={'kind'=>'door','offset'=>1800.0,'width'=>900.0,'height'=>2100.0,'sill'=>0.0}
     assert_empty M.transom_stations(wall(openings:[opening],glass_wall_auto_transom:false))
   end
+  def test_window_preset_bay_math_and_transoms
+    require_relative '../archibim/core'
+    c=SSDigitalLab::ArchiBIM::Core
+    assert_equal 2,c.window_panel_count(900)
+    assert_equal 1,c.window_panel_count(300)
+    assert_equal 4,c.window_panel_count(2100)
+    assert_equal 2,c.transom_panel_count(2300)
+    p=c.window_preset('toilet_top_hung')
+    assert_equal 900.0,p['width']
+    assert_equal 'top',p['hinge']
+    assert_equal 300.0,c.window_preset('tall_narrow')['sill']
+  end
   def test_mullion_limits
     assert_raises(ArgumentError){M.vertical_stations(4800,31)}
   end
