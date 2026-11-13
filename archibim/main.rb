@@ -1544,6 +1544,37 @@ module SSDigitalLab
       dialog.add_action_callback('set_tag') { |_ctx, name, visible, style| callback_safe { set_tag(name, visible, style) } }
       dialog.add_action_callback('rebuild') { |_ctx, scope, mode| callback_safe { rebuild_bim(scope, mode) } }
       dialog.add_action_callback('diagnostics') { |_ctx| callback_safe { export_diagnostics } }
+      dialog.add_action_callback('ui_snapshot') do |_ctx, payload|
+        callback_safe do
+          raise ArgumentError, 'Invalid UI snapshot' unless payload.is_a?(Hash) && payload['report'].is_a?(Hash)
+          path=UI.savepanel('Save ArchiBIM UI diagnostics',nil,'ArchiBIM_UI_Diagnostic.json')
+          if path
+            base=path.sub(/\.json\z/i,'')
+            report=payload['report'].merge('model_title'=>Sketchup.active_model.title,
+              'sketchup_version'=>Sketchup.version,'exported_at'=>Time.now.utc.iso8601)
+            if @dialog && @dialog.visible?
+              report['dialog_size']=@dialog.get_size
+              report['dialog_position']=@dialog.get_position
+            end
+            File.open(path,'w:UTF-8'){|file|file.write(JSON.pretty_generate(report))}
+            html=payload['html'].to_s
+            if html.bytesize > 2_000_000
+              report['html_error']='HtmlDialog snapshot too large for export'
+            else
+              File.open(base+'.html','w:UTF-8'){|file|file.write('<!DOCTYPE html>'+html)}
+            end
+            begin
+              Sketchup.active_model.active_view.write_image(filename:base+'_viewport.png',
+                width:1024,height:768,antialias:true)
+            rescue StandardError => image_error
+              report['viewport_error']=image_error.message
+            end
+            File.open(path,'w:UTF-8'){|file|file.write(JSON.pretty_generate(report))}
+            Diagnostics.log('ui_snapshot_export',{'path'=>path,'html_bytes'=>html.bytesize})
+            UI.messagebox("UI diagnostics exported next to #{File.basename(path)}.\nAttach the JSON, HTML and viewport PNG to the QA Lab.")
+          end
+        end
+      end
       dialog.add_action_callback('resize_footprint') do |_ctx, percentage|
         callback_safe { resize_footprint(Float(percentage) / 100.0) }
       end
