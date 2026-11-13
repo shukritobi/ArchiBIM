@@ -67,6 +67,17 @@ Original source edges are **preserved**. All generated walls use the current lev
 ## What's new
 
 <details open>
+<summary><strong>v0.8.5 · Explicit wall junction repair and robust 10mm contact tolerance</strong></summary>
+
+- **Fixes false broken corners** caused by double-precision rounding at an exact 10 mm tolerance (`10.000000000001364 mm` was previously rejected).
+- **Preview and Heal selected wall junctions:** geometry-aware correction to a neighbouring wall face or endpoint, bounded to 170 mm by default. Select specific ArchiBIM walls; ambiguous candidates, cross-storey and parallel walls are skipped.
+- Source endpoints and hosted openings stay parametric; repairs run as **one undoable transaction**, with preflight validation, graph recalculation, and rollback if broken-link count increases.
+- **Does not auto-join a 655 mm displaced wall** or other large gaps. Repair those manually using the appropriate wall move/endpoint reference.
+- Diagnoses source case `ArchiBIM_Testing_Log(5).txt` (13 Nov 2026). Pure Ruby regression fixtures cover 10 mm rounding, 150 mm face gaps, 655 mm displacement and Undo-safe planning; real SketchUp 2026 QA is still required.
+
+</details>
+
+<details open>
 <summary><strong>v0.8.4 · Wall straightening and SketchUp axis inference</strong></summary>
 
 - **Select individual RoomPlan `Wall-rp-*` groups or ArchiBIM walls**, then choose **Square / straighten walls** in the manager. Rotates qualifying groups about their midpoint in plan, preserving wall mesh faces, tags and materials.
