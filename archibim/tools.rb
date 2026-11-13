@@ -373,6 +373,7 @@ module SSDigitalLab
         ArchiBIM.place_opening(@wall, @kind, @hit, { 'hinge' => @hinge, 'swing' => @swing })
         view.invalidate
       rescue StandardError => e
+        Diagnostics.error('opening_tool', e)
         UI.messagebox("ArchiBIM: #{e.message}")
       end
 
