@@ -144,6 +144,15 @@ module SSDigitalLab
         face.pushpull(depth.mm)
       end
 
+      def self.round_cylinder(entities, origin, direction, radius_mm, length_mm)
+        vector=Geom::Vector3d.new(*direction)
+        circle=entities.add_circle(point(*origin),vector,radius_mm.mm,24)
+        face=entities.add_face(circle)
+        return unless face
+        face.reverse! if face.normal.dot(vector)<0
+        face.pushpull(length_mm.mm)
+      end
+
       def self.door_hardware(child, opening, model, y, lower_z, upper_z, style)
         width = opening['width'].to_f
         x = opening['offset'].to_f
@@ -160,30 +169,32 @@ module SSDigitalLab
         [-1, 1].each do |side|
           fy = y + side * (style == 'solid' ? 26.0 : 8.0)
           if handle_style == 'round_knob'
-            handle_cylinder(fittings.entities, handle_x, fy, handle_z, 28.0, 15.0, side)
-            handle_cylinder(fittings.entities, handle_x, fy + side * 15.0,
-                            handle_z, 22.0, 28.0, side)
+            round_cylinder(fittings.entities,[handle_x,fy,handle_z],[0,side,0],25,7)
+            # Stepped convex profile replaces the former straight cylinder and
+            # gives the round knob its domed outline without faceted cubes.
+            [[12.0,16.0,9.0],[17.0,25.0,10.0],[27.0,30.0,9.0],
+             [36.0,26.0,8.0],[44.0,18.0,6.0]].each do |offset,radius,depth|
+              round_cylinder(fittings.entities,
+                [handle_x,fy+side*offset,handle_z],[0,side,0],radius,depth)
+            end
           elsif handle_style == 'pull'
-            # Long vertical rectangular pull like the supplied frosted-glass reference.
-            pull = fittings.entities.add_group
-            pull.name = 'Vertical pull 500 mm'
-            box(pull.entities, handle_x - 12, handle_x + 12,
-                fy + (side.positive? ? 35 : -55), fy + (side.positive? ? 55 : -35),
-                [lower_z + 250, handle_z - 250].max,
-                [upper_z - 120, handle_z + 250].min)
-            [handle_z - 165, handle_z + 165].each do |z|
-              post = fittings.entities.add_group
-              y0, y1 = [fy, fy + side * 45].minmax
-              box(post.entities, handle_x - 9, handle_x + 9, y0, y1, z - 9, z + 9)
+            # Cylindrical U pull, front and reverse hardware matching.
+            z0=[lower_z+160.0,handle_z-250.0].max
+            z1=[upper_z-95.0,handle_z+250.0].min
+            visible_y=fy+side*46.0
+            round_cylinder(fittings.entities,[handle_x,visible_y,z0],[0,0,1],9,z1-z0)
+            [z0+80.0,z1-80.0].each do |z|
+              round_cylinder(fittings.entities,[handle_x,fy,z],[0,side,0],10,46)
             end
           else
-            handle_cylinder(fittings.entities, handle_x, fy, handle_z, 25.0, 9.0, side)
-            lever = fittings.entities.add_group
-            lever.name = 'Lever grip'
-            travel = hinge_left ? -90.0 : 90.0
-            from_x, to_x = [handle_x, handle_x + travel].minmax
-            y0, y1 = [fy + side * 9.0, fy + side * 26.0].minmax
-            box(lever.entities, from_x, to_x, y0, y1, handle_z - 8.0, handle_z + 8.0)
+            round_cylinder(fittings.entities,[handle_x,fy,handle_z],[0,side,0],26,8)
+            round_cylinder(fittings.entities,[handle_x,fy+side*8.0,handle_z],[0,side,0],9,24)
+            # A properly rounded L-shaped lever with a horizontal barrel.
+            barrel_y=fy+side*31.0
+            travel=hinge_left ? -1.0 : 1.0
+            round_cylinder(fittings.entities,[handle_x,barrel_y,handle_z],[travel,0,0],8,110)
+            round_cylinder(fittings.entities,[handle_x+travel*103.0,barrel_y,handle_z],
+              [travel,0,0],9.2,7.0)
           end
         end
       end
