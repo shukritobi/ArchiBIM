@@ -27,9 +27,9 @@ jobs:
       - name: Build RBZ and verify contents
         run: |
           mkdir -p dist
-          zip -q -r dist/ArchiBIM_v0.8.8.rbz ArchiBIM.rb archibim -x '*.tmp'
-          unzip -t dist/ArchiBIM_v0.8.8.rbz | tail -1
+          zip -q -r dist/ArchiBIM_v0.8.9.rbz ArchiBIM.rb archibim -x '*.tmp'
+          unzip -t dist/ArchiBIM_v0.8.9.rbz | tail -1
       - uses: actions/upload-artifact@v4
         with:
-          name: ArchiBIM_v0.8.8
-          path: dist/ArchiBIM_v0.8.8.rbz
+          name: ArchiBIM_v0.8.9
+          path: dist/ArchiBIM_v0.8.9.rbz
