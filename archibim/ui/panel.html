@@ -24,7 +24,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 @media (max-width:340px){.grid.tools{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:minmax(0,1fr)}}
 </style></head><body>
 <header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.4</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
-<nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
+<nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="openings">Openings</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
 <main>
 <div id="actionFeedback" class="ui-status" role="status" aria-live="polite" aria-atomic="true">Ready. Select a tool or element to begin.</div>
 <div id="graphFeedbackTop" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -102,6 +102,28 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
  <div class="panel"><h2>Hosted openings</h2><div class="scrollX" id="openingTable"></div></div>
  <div class="panel"><h3>Cost rates (RM / unit)</h3><p class="hint">Wall / slab / room in RM/m²; beam / column / footing in RM/m³; stairs / openings in RM/item.</p><div class="grid" id="rateFields"></div><div style="margin-top:12px"><button class="btn primary full" data-action="saveRates">Save rates</button></div></div>
 </section>
+<section class="pane" id="pane-openings">
+ <div class="panel"><div class="eyebrow">Across all BIM walls</div><h2>Multi-select doors &amp; windows</h2>
+   <p class="hint">Tick multiple openings, including openings hosted by different walls. Leave a field blank or choose Keep unchanged to avoid modifying it. One operation, one Undo. Invalid/overlapping updates abort the whole batch.</p>
+   <div class="flex" style="gap:8px;align-items:center"><button class="btn outline small" data-action="selectAllOpenings">Select all</button><button class="btn outline small" data-action="clearOpeningSelection">Clear</button></div>
+   <div id="openingBulkList"></div>
+ </div>
+ <div class="panel"><h2>Apply to checked openings</h2>
+   <div class="grid">
+     <div><label>Width (optional)</label><input id="bulk_width" placeholder="Keep width" type="text"></div>
+     <div><label>Height (optional)</label><input id="bulk_height" placeholder="Keep height" type="text"></div>
+     <div><label>Sill (optional)</label><input id="bulk_sill" placeholder="Keep sill" type="text"></div>
+     <div><label>Upper glass height (optional)</label><input id="bulk_transom_height" placeholder="Keep height" type="text"></div>
+     <div><label>Hinge</label><select id="bulk_hinge"><option value="">Keep unchanged</option><option value="left">Left</option><option value="right">Right</option></select></div>
+     <div><label>Swing</label><select id="bulk_swing"><option value="">Keep unchanged</option><option value="in">Inward</option><option value="out">Outward</option></select></div>
+     <div><label>Door style</label><select id="bulk_style"><option value="">Keep unchanged</option><option value="solid">Solid</option><option value="glass_frameless">Glass: floor / head pivot</option><option value="glass_framed">Glass: framed door</option></select></div>
+     <div><label>Door hardware</label><select id="bulk_handle"><option value="">Keep unchanged</option><option value="lever">Lever</option><option value="round_knob">Round knob</option><option value="pull">Vertical pull</option></select></div>
+     <div><label>Window operation</label><select id="bulk_operation"><option value="">Keep unchanged</option><option value="casement">Casement</option><option value="fixed">Fixed glazing</option></select></div>
+     <div><label>Upper glass panel</label><select id="bulk_transom"><option value="">Keep unchanged</option><option value="true">Enabled</option><option value="false">Disabled</option></select></div>
+   </div>
+   <div style="margin-top:10px"><button class="btn primary full" data-action="applyBulkOpenings">Update checked openings</button></div>
+ </div>
+</section>
 <section class="pane" id="pane-tags">
  <div class="panel"><div class="eyebrow">Native SketchUp Tags</div><h2>Visibility and line styles</h2><p class="hint">Switch plan and elevation door/window symbols separately. Select an available SketchUp native line style for any Tag. Existing customized styles are preserved when geometry regenerates.</p><div id="tagRows"></div></div>
 </section>
@@ -131,6 +153,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 (function(){
   let state = {settings:{}, levels:[], selected:null, report:{elements:[],openings:[],summary:{},cost:0},active_level:'GF'};
   let activeTool = null;
+  const selectedOpeningIds=new Set();
   let tab = 'build';
   const $ = id => document.getElementById(id);
   const html = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -150,9 +173,9 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   function showTab(name){tab=name;document.querySelectorAll('#nav button').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));document.querySelectorAll('.pane').forEach(el=>el.classList.toggle('active',el.id===`pane-${name}`));}
   // Every BIM tool has its own type/creation inspector, following BIM property palettes.
   const toolSchema={
-   wall:{title:'Wall',help:'Draw the reference line. Choose which side faces outdoors so hosted frames can align flush.', fields:[['wall_height','Unconnected height'],['wall_thickness','Wall thickness'],['wall_alignment','Location line','align'],['wall_exterior_side','Exterior side (relative to draw direction)','side']]},
-   door:{title:'Door / Open passage',help:'Choose a hinged leaf or an empty doorless opening (no frame or swing). Click the host wall to insert.',fields:[['door_width','Clear opening width'],['door_height','Door opening height'],['door_mount','Frame depth placement','mount'],['door_leafless','Open passage (no door or frame)','boolean']]},
-   window:{title:'Window',help:'Frames can be flush with either wall face; place and then drag along a wall.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_mount','Frame depth placement','mount'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
+   wall:{title:'Wall',help:'Brick 150mm, partition 100mm, or glass 50mm framed / frameless. Choose type to load presets; dimensions remain editable.', fields:[['wall_type','Wall construction type','wallTypes'],['wall_height','Wall height'],['wall_thickness','Wall thickness / frame depth'],['glass_wall_frame','Glass wall has perimeter frame','boolean'],['glass_wall_frame_width','Glass frame border width'],['glass_wall_glass_thickness','Glass panel thickness'],['wall_alignment','Location line','align'],['wall_exterior_side','Exterior side (relative to draw direction)','side']]},
+   door:{title:'Door / Open passage',help:'Solid hinged door, frameless glass with top/bottom pivots, framed glass or leafless passage. Left/Right changes hinge; Up/Down reverses swing while hovering.',fields:[['door_width','Clear opening width'],['door_height','Door opening height'],['door_style','Door construction','doorStyles'],['door_handle','Handle / pull','doorHandles'],['door_transom','Upper fixed glass panel','boolean'],['door_transom_height','Upper panel height'],['door_mount','Frame depth placement','mount'],['door_leafless','Open passage (no door or frame)','boolean']]},
+   window:{title:'Window',help:'Fixed windows have no opening hinge or swing markers. Optionally add an upper glass panel. Frame can be flush on either wall face.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_operation','Opening operation','windowOps'],['window_transom','Upper fixed glass panel','boolean'],['window_transom_height','Upper panel height'],['window_mount','Frame depth placement','mount'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
    sliding_door:{title:'Sliding door',help:'Sliding aluminium/glazed panels with dual tracks. Hover a wall to insert.',fields:[['sliding_door_width','Opening width'],['sliding_door_height','Opening height'],['sliding_door_panels','Number of sliding panels','slidingPanels'],['sliding_door_direction','Sliding direction','slideDir'],['sliding_door_mount','Frame depth placement','mount']]},
    slab:{title:'Slab',help:"Draw a rectangle or type 20',70' in SketchUp Measurements to set the plan footprint.",fields:[['slab_thickness','Structural thickness']]},
    footing:{title:'Pad footing',help:'Draw rectangular pad. Thickness is measured downward from the working level.',fields:[['footing_thickness','Footing thickness']]},
@@ -164,6 +187,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
    room_walls:{title:'Four-wall room',help:'Click two opposing corners. Four individually editable walls will follow the perimeter; optional room area generated inside.',fields:[['wall_height','Wall height'],['wall_thickness','Wall thickness'],['room_add_zone','Create interior area zone','boolean']]}
   };
   const choices={
+    wallTypes:[['brick','Brick wall · 150mm'],['partition','Partition wall · 100mm'],['glass','Glass wall · 50mm frame']],
+    doorStyles:[['solid','Solid / timber leaf'],['glass_frameless','Frameless glass with top/bottom pivots'],['glass_framed','Glass leaf with full door frame']],
+    doorHandles:[['lever','Lever (default)'],['round_knob','Round knob'],['pull','Long vertical pull handle']],
+    windowOps:[['casement','Casement'],['fixed','Fixed: cannot open']],
     side:[['right','Right side of drawing direction'],['left','Left side of drawing direction']],
     mount:[['center','Centred within wall'],['exterior','Flush exterior wall face'],['interior','Flush interior wall face']],
     slideDir:[['left','Slide toward left'],['right','Slide toward right']],
