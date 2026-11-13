@@ -255,8 +255,10 @@ module SSDigitalLab
       end
 
       def activate
-        Sketchup.status_text = "ArchiBIM #{@kind}: hover on wall to preview, click to insert. " \
-                               'Left=hinge left, Right=hinge right, Up=inward, Down=outward; H/F also work.'
+        instructions = @kind == 'window' ?
+          '←/→ sets side hinge; ↑ top-hung, ↓ bottom-hung; H cycles hinges, F reverses inward/outward.' :
+          '←/→ sets hinge; ↑ inward, ↓ outward; H/F also work.'
+        Sketchup.status_text = "ArchiBIM #{@kind}: hover on wall, click to insert. #{instructions}"
       end
 
       def deactivate(view); view.invalidate if view; end
@@ -337,7 +339,7 @@ module SSDigitalLab
           end
           view.tooltip = "#{@kind.capitalize} preview | #{ArchiBIM.fmt_mm(width)} × " \
                          "#{ArchiBIM.fmt_mm(opening['height'])}, sill #{ArchiBIM.fmt_mm(sill)}" \
-                         " | Hinge: #{@hinge} (←/→), Swing: #{@swing} (↑/↓)"
+                         " | Hinge: #{@hinge} (←/→, window ↑ top / ↓ bottom), Swing: #{@swing} (F)"
         end
         view.invalidate
       rescue StandardError
@@ -352,15 +354,17 @@ module SSDigitalLab
         when VK_RIGHT
           @hinge = 'right'
         when VK_UP
-          @swing = 'in'
+          @kind == 'window' ? @hinge = 'top' : @swing = 'in'
         when VK_DOWN
-          @swing = 'out'
+          @kind == 'window' ? @hinge = 'bottom' : @swing = 'out'
         when 72, 104 # H
-          @hinge = @hinge == 'left' ? 'right' : 'left'
+          options = @kind == 'window' ? %w[left right top bottom] : %w[left right]
+          @hinge = options[(options.index(@hinge).to_i + 1) % options.length]
         when 70, 102 # F
           @swing = @swing == 'in' ? 'out' : 'in'
         end
-        Sketchup.status_text = "ArchiBIM opening: hinge #{@hinge}, swing #{@swing}. Left/Right hinge; Up/Down swing."
+        Sketchup.status_text = "ArchiBIM opening: hinge #{@hinge}, swing #{@swing}. " +
+          (@kind == 'window' ? 'Use ↑ for top-hung or ↓ for bottom-hung.' : '↑/↓ changes swing.')
         view.invalidate
       end
 
