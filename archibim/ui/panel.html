@@ -53,6 +53,13 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
   <div class="eyebrow" style="margin-top:15px">Element creation parameters</div>
   <h2 id="configToolTitle">Wall</h2><p class="hint" id="configToolHelp">Changes are saved to this model and reflected in the ghost preview.</p>
   <div class="grid" id="configToolFields"></div>
+  <div id="windowPresets" style="display:none">
+   <div class="eyebrow">Quick window presets</div>
+   <div class="grid"><button class="btn outline" data-action="windowPreset" data-preset="toilet_top_hung">Toilet top hung · 900×900, sill 1500</button>
+   <button class="btn outline" data-action="windowPreset" data-preset="tall_narrow">Tall narrow · 300×1200, sill 300</button></div>
+   <p class="hint">Design starting values only, fully adjustable.</p>
+  </div>
+  <button id="openingPathButton" class="btn outline full" style="display:none" data-action="openingPath">Draw opening between two wall points</button>
   <p class="hint">Settings are saved when you change a field. Move the mouse in SketchUp to refresh the ghost preview. The SketchUp Measurements box is still available for exact placement.</p>
   <button class="btn primary full" data-action="activateTool">Start placing this element</button>
  </div>
@@ -114,6 +121,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 </section>
 <section class="pane" id="pane-openings">
  <div class="panel"><div class="eyebrow">Across all BIM walls</div><h2>Multi-select doors &amp; windows</h2>
+   <button class="btn primary full" data-action="pickOpenings">Pick openings in model (Shift multi-select)</button>
    <p class="hint">Tick multiple openings, including openings hosted by different walls. Leave a field blank or choose Keep unchanged to avoid modifying it. One operation, one Undo. Invalid/overlapping updates abort the whole batch.</p>
    <div class="flex" style="gap:8px;align-items:center"><button class="btn outline small" data-action="selectAllOpenings">Select all</button><button class="btn outline small" data-action="clearOpeningSelection">Clear</button></div>
    <p id="bulkSelectionCount" class="hint">0 selected</p><div id="openingBulkList"></div>
@@ -155,6 +163,9 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 </section>
 <section class="pane" id="pane-export">
  <div class="panel"><div class="eyebrow">Deliverables</div><h2>Schedules and model data</h2><div class="grid"><button class="btn primary" data-action="csv">Export CSV</button><button class="btn outline" data-action="json">Export JSON</button></div><p class="hint">CSV is suitable for Excel. JSON retains element metadata, levels, settings and takeoff details.</p></div>
+ <div class="panel"><div class="eyebrow">Detailed opening takeoff</div><h2>Door & window schedule</h2>
+ <p class="hint">Exports marked doors and windows with levels, host walls, sizes, hardware and quantities.</p>
+ <button class="btn primary full" data-action="openingSchedule">Export Door & Window Schedule CSV</button></div>
  <div class="panel"><div class="eyebrow">Open BIM</div><h2>IFC handoff</h2><button class="btn primary full" data-action="ifc">Export IFC model</button><p class="hint">Uses SketchUp's native IFC exporter where available (normally SketchUp Pro). IFC type assignment also depends on having the IFC classification schema loaded. Always verify the resulting file in an independent IFC viewer.</p></div>
  <div class="panel"><div class="eyebrow">Drawing set · preview</div><h2>Generate coordinated plans and elevations</h2><button class="btn primary full" data-action="drawing_set">Generate complete architectural scene set</button><p class="hint">Creates or updates floor/roof plans, four elevations, two central building sections and both available floor RCP previews. Uses native SketchUp scenes for LayOut. A second level is created only when a level exists; sections require manual placement and RCPs need ceiling objects.</p></div>\n <div class="panel"><div class="eyebrow">AI interoperability</div><h2>Export model snapshot</h2><button class="btn outline full" data-action="ai_snapshot">Export AI-readable JSON</button><p class="hint">Read-only opt-in export of BIM element IDs, world origins, parameters, levels and drawing references. No external connection is started.</p></div>
  <div class="panel"><div class="eyebrow">CAD exchange · early preview</div><h2>Layered 2D DXF drawings</h2><button class="btn outline full" data-action="dxf_set">Export 2D drawing set (DXF)</button><p class="hint">Saves millimetre 1:1 CAD lines for existing levels, roof, all elevations, central A-A/B-B sections, and RCP previews. This is preliminary projection/cut linework. Hidden-line cleanup, annotations, hatch and construction dimensions need drafting review in AutoCAD or LayOut.</p></div>\n <div class="panel"><div class="eyebrow">Documentation</div><h2>Plan scene</h2><button class="btn outline full" data-action="scene">Create +1200 mm cut plan scene</button><p class="hint">Creates a plan scene with a section cut at 1200 mm above the selected level and an orthographic top view. Dimensions, hatches and LayOut sheets are not automatic.</p></div>
@@ -206,7 +217,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 ['glass_wall_corner_skin','Hollow profile sheet thickness'],['glass_wall_partition_above','Partition above glass','boolean'],
 ['glass_wall_partition_height','Partition above height'],['glass_wall_partition_thickness','Partition above depth'],['wall_alignment','Location line','align'],['wall_exterior_side','Exterior side (relative to draw direction)','side']]},
    door:{title:'Door / Open passage',help:'Solid hinged door, frameless glass with top/bottom pivots, framed glass or leafless passage. Left/Right changes hinge; Up/Down reverses swing while hovering.',fields:[['door_width','Clear opening width'],['door_height','Door opening height'],['door_style','Door construction','doorStyles'],['door_handle','Handle / pull','doorHandles'],['door_transom','Upper fixed glass panel','boolean'],['door_transom_height','Upper panel height'],['door_mount','Frame depth placement','mount'],['door_leafless','Open passage (no door or frame)','boolean']]},
-   window:{title:'Window',help:'Fixed windows have no opening hinge or swing markers. Optionally add an upper glass panel. Frame can be flush on either wall face.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_operation','Opening operation','windowOps'],['window_transom','Upper fixed glass panel','boolean'],['window_transom_height','Upper panel height'],['window_mount','Frame depth placement','mount'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
+   window:{title:'Window',help:'Fixed windows have no opening hinge or swing markers. Optionally add an upper glass panel. Frame can be flush on either wall face.',fields:[['window_width','Window width'],['window_height','Window height'],['window_sill','Sill above finished floor'],['window_operation','Opening operation','windowOps'],['window_hinge','Window hinge orientation','windowHinges'],['window_transom','Upper fixed glass panel','boolean'],['window_transom_height','Upper panel height'],['window_mount','Frame depth placement','mount'],['window_panels','Number of panels','panels'],['window_outer_frame','Outer frame width'],['window_inner_frame','Sash frame width'],['window_glass_thickness','Glazing thickness']]},
    sliding_door:{title:'Sliding door',help:'Sliding aluminium/glazed panels with dual tracks. Hover a wall to insert.',fields:[['sliding_door_width','Opening width'],['sliding_door_height','Opening height'],['sliding_door_panels','Number of sliding panels','slidingPanels'],['sliding_door_direction','Sliding direction','slideDir'],['sliding_door_mount','Frame depth placement','mount']]},
    slab:{title:'Slab',help:"Draw a rectangle or type 20',70' in SketchUp Measurements to set the plan footprint.",fields:[['slab_thickness','Structural thickness']]},
    footing:{title:'Pad footing',help:'Draw rectangular pad. Thickness is measured downward from the working level.',fields:[['footing_thickness','Footing thickness']]},
@@ -223,6 +234,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     doorStyles:[['solid','Solid / timber leaf'],['glass_frameless','Frameless glass with top/bottom pivots'],['glass_framed','Glass leaf with full door frame']],
     doorHandles:[['lever','Lever (default)'],['round_knob','Round knob'],['pull','Long vertical pull handle']],
     windowOps:[['casement','Casement'],['fixed','Fixed: cannot open']],
+    windowHinges:[['left','Left'],['right','Right'],['top','Top hung']],
     side:[['right','Right side of drawing direction'],['left','Left side of drawing direction']],
     mount:[['center','Centred within wall'],['exterior','Flush exterior wall face'],['interior','Flush interior wall face']],
     slideDir:[['left','Slide toward left'],['right','Slide toward right']],
@@ -250,6 +262,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     }).join('');
     def.fields.forEach(([key])=>{const el=$('cfg_'+key);if(el)el.dataset.setting=key;});
     refreshOpeningDependencies();
+    const presets=$('windowPresets');
+    if(presets)presets.style.display=activeTool==='window'?'':'none';
+    const path=$('openingPathButton');
+    if(path)path.style.display=['door','window','sliding_door'].includes(activeTool)?'':'none';
   }
   function presets(){
     renderToolEditor();
@@ -421,7 +437,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const content=item?`<div class="notice" style="margin-top:10px"><b>Wall scan · ${html(item.at||'')}</b><p>${html(item.message)}</p>${item.report?`<p class="hint">${html(JSON.stringify(item.report))}</p>`:''}</div>`:'';
     ['graphFeedbackBuild','graphFeedbackSelected','graphFeedbackTop'].forEach(id=>{const el=$(id);if(el)el.innerHTML=content;});
   }
-  window.ArchiBIM={receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}installFolds();}};
+  window.ArchiBIM={setOpeningSelection(ids){selectedOpeningIds.clear();ids.forEach(id=>selectedOpeningIds.add(id));showTab('openings');renderBulkOpenings();announce(ids.length+' hosted openings selected in model.');},receive(payload,focusProperties=false){state=payload;announce('Model information refreshed from SketchUp.');$('version').textContent='v'+payload.version;renderLevels();presets();renderInspector();renderBulkOpenings();renderGraphFeedback();renderQuantities();renderTags();if(focusProperties&&state.selected){showTab('properties');window.scrollTo(0,0);}installFolds();}};
   $('toolSearch').addEventListener('input',e=>{
     const q=e.target.value.toLowerCase();
     document.querySelectorAll('#toolPicker button.tool').forEach(el=>{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';});
@@ -470,6 +486,10 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
     const a=target.dataset.action,id=target.dataset.id;
     switch(a){
       case 'backTools':activeTool=null;renderToolEditor();break;
+      case 'openingPath':if(activeTool)call('opening_path_tool',activeTool);break;
+      case 'pickOpenings':call('opening_pick_tool');break;
+      case 'openingSchedule':call('opening_schedule');break;
+      case 'windowPreset':call('window_preset',target.dataset.preset);break;
       case 'activateTool':if(activeTool)call('tool',activeTool);break;
       case 'saveRates':{const rates={};Object.keys(state.settings.rates||{}).forEach(k=>rates[k]=from('r_'+k));call('settings',{rates});break;}
       case 'saveElement':{const d=state.selected;if(!d)return;const keys={wall:['length','height','thickness'],slab:['width','depth','thickness'],footing:['width','depth','thickness'],roof:['width','depth','thickness','pitch','overhang','eave_offset','infill_thickness','gutter_width','gutter_depth','downpipe_diameter','downpipe_drop','truss_spacing','truss_member'],column:['width','depth','height'],beam:['length','width','depth','offset'],stair:['run','width','rise','steps','landing','gap','waist','rail_height','rail_diameter','post_spacing','max_riser','min_tread','hole_clearance'],room:['width','depth']}[d.kind]||[];
