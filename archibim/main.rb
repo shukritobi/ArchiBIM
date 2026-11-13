@@ -29,7 +29,7 @@ require_relative 'dxf_export'
 module SSDigitalLab
   module ArchiBIM
     extend self
-    VERSION = '0.8.8'
+    VERSION = '0.8.9'
     DICT = 'SSDigitalLab_ArchiBIM'
     TITLE = 'ArchiBIM'
 
