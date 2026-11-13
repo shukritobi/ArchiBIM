@@ -170,7 +170,20 @@ module SSDigitalLab
         [(width.to_f / max_width).ceil, 1].max
       end
 
-      WALL_TYPES = {
+      # Fixed transom bays align with the corresponding window sashes.
+    # Legacy doors without a leaf count retain the 1200mm fabrication limit.
+    def self.transom_layout_count(opening)
+      kind = opening.fetch('kind', 'window')
+      if kind == 'window'
+        [[opening.fetch('panels', window_panel_count(opening['width'])).to_i, 1].max, 20].min
+      elsif opening.key?('panels')
+        [[opening['panels'].to_i, 1].max, 20].min
+      else
+        transom_panel_count(opening['width'])
+      end
+    end
+
+    WALL_TYPES = {
         'brick' => { 'thickness' => 150.0, 'height' => 3000.0 },
         'partition' => { 'thickness' => 100.0, 'height' => 3000.0 },
         'glass' => { 'thickness' => 50.0, 'height' => 2100.0 }
