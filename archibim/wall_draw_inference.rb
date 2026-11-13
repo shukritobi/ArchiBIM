@@ -12,6 +12,7 @@ module SSDigitalLab
 
       def onMouseMove(flags, x, y, view)
         super
+        @hover ||= ArchiBIM.workplane_pick(view, x, y) if @kind == 'wall'
         return unless @kind == 'wall' && @first && @hover
         dx = @hover.x - @first.x
         dy = @hover.y - @first.y
