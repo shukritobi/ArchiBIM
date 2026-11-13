@@ -23,7 +23,7 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
 }
 @media (max-width:340px){.grid.tools{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:minmax(0,1fr)}}
 </style></head><body>
-<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.2</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
+<header><div class="brand"><div class="mark">A</div><div><h1>ArchiBIM</h1><p>ARCHITECTURAL OBJECT SYSTEM</p></div><div class="ver" id="version">v0.8.4</div></div><div class="intro">Parametric design and BIM quantities, inside SketchUp.</div></header>
 <nav id="nav"><button data-tab="build" class="active">Build</button><button data-tab="properties">Properties</button><button data-tab="levels">Levels</button><button data-tab="quantities">Quantities</button><button data-tab="tags">Tags</button><button data-tab="export">Export</button><button data-tab="diagnostics">Diagnostics</button></nav>
 <main>
 <div id="actionFeedback" class="ui-status" role="status" aria-live="polite" aria-atomic="true">Ready. Select a tool or element to begin.</div>
@@ -60,6 +60,29 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
    <button class="btn primary full" data-action="convertLines">Convert connected lines to walls</button>
    <button class="btn outline full" data-action="auditScan">Analyze iPad scan (read-only JSON)</button>
    <p class="hint">Uses current wall thickness, height and alignment on the active level. Source lines stay untouched. Mixed-height / sloping edges, overlaps and walls under 50 mm are rejected. Complex 3-way junctions without a through-line are flagged for review.</p>
+ </div>
+ <div class="panel" id="wallStraighten" style="border:1px solid #5683a0">
+   <div class="eyebrow">NEW · Scan wall straightening</div>
+   <h2>Square / straighten walls</h2>
+   <p class="hint">Select individual <b>RoomPlan Wall-rp-*</b> groups or ArchiBIM walls. Rotate around each wall's <b>midpoint</b> in plan. Source scan faces and tags are preserved. Start with a copy of the scan model.</p>
+   <div class="grid">
+     <div><label for="wallAngleMode">Target angles</label>
+       <select id="wallAngleMode">
+         <option value="orthogonal">0°, 90°, 180° (straight plan)</option>
+         <option value="architectural">Every 15° (15°, 30°, 45°, 60°...)</option>
+         <option value="reference">Parallel / perpendicular to reference</option>
+       </select>
+     </div>
+     <div><label for="wallAngleTolerance">Maximum angular correction (°)</label>
+       <input id="wallAngleTolerance" type="number" min="0.1" max="15" step="0.5" value="5"/>
+     </div>
+   </div>
+   <button class="btn outline full" data-action="referenceStraighten">Set selected wall as reference</button>
+   <div class="grid" style="margin-top:8px">
+     <button class="btn outline" data-action="previewStraighten">Preview correction</button>
+     <button class="btn primary" data-action="applyStraighten">Straighten selected walls</button>
+   </div>
+   <p class="hint">Skews beyond the tolerance are skipped. Use reference mode if the scanned area itself is rotated. Rotating RoomPlan groups can separate existing corners; review joints. Existing BIM connections are checked and unsafe changes roll back. Use Undo to revert.</p>
  </div>
  <div class="panel"><div class="eyebrow">Wall connection defaults</div><label><input id="autoWallJoin" type="checkbox" style="width:auto;margin-right:7px" checked/>Detect and connect touching wall junctions automatically</label><p class="hint">Corner and internal T-junctions now default to Linked. You can set any junction to Join Only or Unlinked in Wall Properties. Legacy Join Only junctions retain their prior setting until you explicitly link them.</p><div class="grid"> <button class="btn outline small" data-action="scanAllWalls">Scan all walls</button> <button class="btn outline small" data-action="linkAllTees">Link existing T-junctions</button></div><div id="graphFeedbackBuild"></div></div>
  <div class="panel"><div class="eyebrow">BIM Scale protection</div><label><input id="autoRepairScale" type="checkbox" style="width:auto;margin-right:7px" checked/>Repair transformed BIM geometry automatically after using SketchUp Scale</label><p class="hint">When the Scale operation finishes, ArchiBIM rebuilds length/plan dimensions while restoring specified wall thickness, window sizes, and heights. This creates a separate undo step. For complex shear, use the diagnostic repair tool instead.</p></div>
@@ -286,6 +309,9 @@ main{padding:16px 15px 38px}.pane{display:none}.pane.active{display:block}h2{fon
       case 'scanAllWalls':call('scan_wall_connections');break;
       case 'convertLines':call('convert_lines_to_walls');break;
       case 'auditScan':call('audit_ipad_scan');break;
+      case 'referenceStraighten':call('straighten_reference');break;
+      case 'previewStraighten':call('straighten_preview',from('wallAngleMode'),Number(from('wallAngleTolerance')));break;
+      case 'applyStraighten':call('straighten_apply',from('wallAngleMode'),Number(from('wallAngleTolerance')));break;
       case 'linkAllTees':if(confirm('Make all touching existing interior T-junctions Linked, so interior partitions follow their host walls? This is undoable.'))call('link_existing_tees');break;
       case 'resetCamera':call('reset_camera');break;
       case 'syncStairHoles':call('sync_stair_holes');break;

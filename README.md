@@ -67,6 +67,18 @@ Original source edges are **preserved**. All generated walls use the current lev
 ## What's new
 
 <details open>
+<summary><strong>v0.8.4 · Wall straightening and SketchUp axis inference</strong></summary>
+
+- **Select individual RoomPlan `Wall-rp-*` groups or ArchiBIM walls**, then choose **Square / straighten walls** in the manager. Rotates qualifying groups about their midpoint in plan, preserving wall mesh faces, tags and materials.
+- **Preview first:** shows source and proposed angle and predicted endpoint displacement. Maximum correction defaults to **5°**. Orthogonal mode snaps near 0/90/180°; architectural mode snaps near 15° increments; intentionally angled walls outside tolerance stay unchanged.
+- **Reference wall mode:** select a wall and click **Set selected wall as reference**, select other walls, then **Parallel / perpendicular to reference**. This works when the scanned building is not aligned to SketchUp global axes.
+- **Wall drawing:** 0/90° polar tracking near axes and explicit **Right arrow (red X), Left arrow (green Y), Down arrow (unlock), hold Shift (freeze current direction)**. Original native InputPoint cursor inference and model-level connected wall point snapping are preserved.
+- **Safety:** one SketchUp undo transaction, BIM junction graph audit guards against newly broken stored links, and no modifications outside selected groups. Scan-derived joints can still require manual cleanup because a center pivot moves endpoints.
+- **Research and QA:** [Wall correction engineering notes](docs/WALL_ANGLE_CORRECTION_RESEARCH.md). This is a source-code and CI-tested feature until verified in SketchUp 2026 against a copy of the Setapak scan. **Do not mistake a passing CI build for desktop acceptance.**
+
+</details>
+
+<details open>
 <summary><strong>v0.8.3 · iPad Scan-to-Design inspection (read-only)</strong></summary>
 
 - **Extensions → ArchiBIM → Analyze iPad scan (read-only JSON)**. Also available beside the connected-lines action in the ArchiBIM Manager.
