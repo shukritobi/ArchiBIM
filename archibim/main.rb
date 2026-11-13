@@ -97,14 +97,19 @@ module SSDigitalLab
     end
 
     def length_field?(key)
-      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join door_leafless wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
+      !%w[stair_steps roof_pitch window_panels sliding_door_panels auto_repair_scale auto_wall_join door_leafless door_transom window_transom glass_wall_frame wall_type door_style door_handle window_operation wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction room_add_zone roof_type roof_infill door_leafless gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail stair_cut_slab].include?(key)
     end
 
     def save_settings(new_values)
       patch = new_values.dup
       patch.each do |key, value|
-        next if %w[rates wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
+        next if %w[rates wall_type door_style door_handle window_operation door_transom window_transom glass_wall_frame wall_alignment beam_alignment column_alignment wall_exterior_side door_mount window_mount sliding_door_mount sliding_door_direction sliding_door_panels room_add_zone roof_type roof_infill gutter_enabled downpipe_enabled truss_enabled awning_posts truss_style stair_style stair_structure stair_handrail auto_repair_scale auto_wall_join stair_cut_slab].include?(key)
         patch[key] = mm_from_user(value, key) if length_field?(key)
+      end
+      if patch.key?('wall_type')
+        preset = Core.wall_preset(patch['wall_type'])
+        patch['wall_height'] = preset.fetch('height') unless patch.key?('wall_height')
+        patch['wall_thickness'] = preset.fetch('thickness') unless patch.key?('wall_thickness')
       end
       validated = Core.settings(settings.merge(patch))
       Sketchup.active_model.set_attribute(DICT, 'settings', JSON.generate(validated))
@@ -298,6 +303,9 @@ module SSDigitalLab
         when 'wall'
           data.merge!('name' => 'Wall', 'length' => length,
                       'height' => s['wall_height'], 'thickness' => s['wall_thickness'],
+                      'wall_type' => s['wall_type'], 'glass_wall_frame' => s['glass_wall_frame'],
+                      'glass_wall_frame_width' => s['glass_wall_frame_width'],
+                      'glass_wall_glass_thickness' => s['glass_wall_glass_thickness'],
                       'alignment' => s['wall_alignment'], 'exterior_side' => s['wall_exterior_side'], 'openings' => [])
         when 'beam'
           data.merge!('name' => 'Beam', 'length' => length,
@@ -861,6 +869,12 @@ module SSDigitalLab
         end
       end
       if kind == 'wall'
+        raise 'Invalid wall type' unless %w[brick partition glass].include?(data.fetch('wall_type', 'brick'))
+        if data.fetch('wall_type','brick') == 'glass'
+          Core.number(data.fetch('glass_wall_frame_width', 30.0), 'glass frame width')
+          Core.number(data.fetch('glass_wall_glass_thickness', 3.0), 'glass thickness')
+          raise 'Glass thickness exceeds wall frame depth' if data.fetch('glass_wall_glass_thickness', 3.0).to_f >= data['thickness'].to_f
+        end
         raise 'Invalid exterior face' unless %w[left right].include?(data.fetch('exterior_side','right'))
         raise 'Wall alignment must be left, center or right' unless %w[left center right].include?(data.fetch('alignment', 'left'))
         raise 'Too many hosted openings (maximum 100)' if data.fetch('openings', []).size > 100
@@ -874,13 +888,13 @@ module SSDigitalLab
       old = data_for(group)
       raise 'Select an ArchiBIM element first' unless old
       raise 'Changes must be an object' unless changes.is_a?(Hash)
-      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance]
+      allowed = %w[name code notes length height thickness width depth run rise steps offset level_id pitch overhang eave_offset alignment exterior_side roof_type infill infill_thickness gutter_enabled downpipe_enabled gutter_width gutter_depth downpipe_diameter downpipe_drop truss_enabled truss_style truss_spacing truss_member awning_posts style landing gap structure waist handrail rail_height rail_diameter post_spacing max_riser min_tread cut_slab hole_clearance wall_type glass_wall_frame glass_wall_frame_width glass_wall_glass_thickness]
       data = JSON.parse(JSON.generate(old))
       changes.each do |key, value|
         next unless allowed.include?(key)
-        if %w[name code notes level_id alignment exterior_side roof_type truss_style style structure handrail].include?(key)
+        if %w[name code notes level_id alignment exterior_side roof_type truss_style style structure handrail wall_type].include?(key)
           data[key] = value.to_s[0, 250]
-        elsif %w[infill cut_slab gutter_enabled downpipe_enabled truss_enabled awning_posts].include?(key)
+        elsif %w[infill cut_slab gutter_enabled downpipe_enabled truss_enabled awning_posts glass_wall_frame].include?(key)
           data[key] = !!value
         elsif key == 'steps'
           data[key] = Core.number(value, 'steps', min: 0, max: 100).to_i
@@ -932,8 +946,16 @@ module SSDigitalLab
                   'width' => width, 'height' => height, 'sill' => sill,
                   'hinge' => fields.fetch('hinge', 'left'), 'swing' => fields.fetch('swing', 'in'),
                   'marker' => fields.fetch('marker', 'hinge'),
+                  'transom' => fields.fetch('transom', kind == 'window' ? s['window_transom'] : s['door_transom']) == true,
+                  'transom_height' => mm_from_user(fields.fetch('transom_height', s["#{kind == 'window' ? 'window' : 'door'}_transom_height"]), 'transom height'),
                   'mount' => fields.fetch('mount', s.fetch("#{kind}_mount", 'center')) }
-      opening['leafless'] = fields.fetch('leafless', s.fetch('door_leafless', false)) == true if kind == 'door'
+      if kind == 'door'
+        opening['leafless'] = fields.fetch('leafless', s.fetch('door_leafless', false)) == true
+        opening['style'] = fields.fetch('style', s['door_style'])
+        opening['handle'] = fields.fetch('handle', s['door_handle'])
+        opening['outer_frame'] = 45.0
+        opening['glass_thickness'] = 3.0
+      end
       if kind == 'sliding_door'
         opening['panels']=s['sliding_door_panels']
         opening['slide_direction']=fields.fetch('slide_direction',s['sliding_door_direction'])
@@ -941,6 +963,7 @@ module SSDigitalLab
         opening['inner_frame']=30.0
         opening['glass_thickness']=6.0
       elsif kind == 'window'
+        opening['operation'] = fields.fetch('operation', s['window_operation'])
         opening['panels'] = s['window_panels']
         opening['outer_frame'] = s['window_outer_frame']
         opening['inner_frame'] = s['window_inner_frame']
@@ -978,14 +1001,17 @@ module SSDigitalLab
         next unless patch.key?(key)
         open[key] = mm_from_user(patch[key], key)
       end
-      %w[hinge swing marker mount slide_direction].each { |k| open[k] = patch[k] if patch.key?(k) }
+      %w[hinge swing marker mount slide_direction style handle operation].each { |k| open[k] = patch[k] if patch.key?(k) } 
+      open['transom'] = patch['transom'] == true if patch.key?('transom')
+      open['transom_height'] = mm_from_user(patch['transom_height'], 'transom height') if patch.key?('transom_height')
       open['leafless'] = patch['leafless'] == true if open['kind'] == 'door' && patch.key?('leafless')
       %w[outer_frame inner_frame glass_thickness].each do |k|
-        open[k] = mm_from_user(patch[k], k) if patch.key?(k) && %w[window sliding_door].include?(open['kind'])
+        open[k] = mm_from_user(patch[k], k) if patch.key?(k) && %w[door window sliding_door].include?(open['kind'])
       end
       if patch.key?('panels') && %w[window sliding_door].include?(open['kind'])
         open['panels'] = Core.number(patch['panels'], 'panels', min: open['kind']=='sliding_door' ? 2 : 1, max: 4, allow_zero: true).to_i
       end
+      Core.validate_opening_options!(open)
       raise 'Invalid mounting' unless %w[center exterior interior].include?(open.fetch('mount','center'))
       raise 'Invalid sliding direction' unless %w[left right].include?(open.fetch('slide_direction','left'))
       raise 'Marker must be hinge or handle' unless %w[hinge handle].include?(open.fetch('marker', 'hinge'))
