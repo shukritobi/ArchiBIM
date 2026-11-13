@@ -4,7 +4,19 @@ module SSDigitalLab
   module ArchiBIM
     module Geometry
       def self.hidden_symbol_tag(name, dashed: false)
-        existed = Sketchup.active_model.layers[name]
+        model = Sketchup.active_model
+        # Migrate legacy 2D drawing tags only once. This hides symbols that
+        # were created before this feature without overriding visibility the
+        # user explicitly changes after the migration.
+        key = 'symbols_3d_default_hidden_v086'
+        unless model.get_attribute(ArchiBIM::DICT, key, false)
+          model.layers.each do |layer|
+            next unless layer.name.start_with?('AB | 2D |')
+            layer.visible = false
+          end
+          model.set_attribute(ArchiBIM::DICT, key, true)
+        end
+        existed = model.layers[name]
         tag = ArchiBIM.ensure_tag(name, dashed: dashed)
         tag.visible = false unless existed
         tag
